@@ -56,9 +56,10 @@ day_60 = []
 day_120 = []
 day_240 = []
 history = []
-def judgeVol(ts_code, df):
+def judgeVol(ts_code, df, rowData):
     cur = 0
     tianshu = 0
+    maxT = 0
     for row in df.itertuples():
         if cur == 0:
             cur = getattr(row, 'vol')
@@ -66,19 +67,20 @@ def judgeVol(ts_code, df):
         if getattr(row, 'vol') > cur:
             if (tianshu < 5):
                 cur = getattr(row, 'vol')
+                maxT = tianshu
             else:
                 break
         tianshu = tianshu + 1
     if (tianshu>360):
-        history.append(ts_code)
+        history.append(ts_code + "(" + str(maxT) +","+getattr(rowData, 'industry')+")")
     elif tianshu>240:
-        day_240.append(ts_code)
+        day_240.append(ts_code + "(" + str(maxT)+","+getattr(rowData, 'industry') +")")
     elif tianshu>120:
-        day_120.append(ts_code)
+        day_120.append(ts_code + "(" + str(maxT)+","+getattr(rowData, 'industry') +")")
     elif tianshu>60:
-        day_60.append(ts_code)
+        day_60.append(ts_code + "(" + str(maxT)+","+getattr(rowData, 'industry') +")")
     elif tianshu>20:
-        day_20.append(ts_code)
+        day_20.append(ts_code + "(" + str(maxT)+","+getattr(rowData, 'industry') +")")
 
 df = getAllStockCode()
 cur = int(time.time())
@@ -86,7 +88,7 @@ cnt = 0
 for row in df.itertuples():
     try:
         history = getHistoryData(getattr(row,'ts_code'))
-        judgeVol(getattr(row, 'name'), history)
+        judgeVol(getattr(row, 'name'), history, row)
         cnt = cnt + 1
         if (cnt % 450  == 0):
             print("history")
@@ -104,7 +106,6 @@ for row in df.itertuples():
                 time.sleep(60 - dif)
             cur = int(time.time()) 
             print(cnt)
-        break
     except BaseException:
         tb = sys.exc_info()[2]
         print (tb)
