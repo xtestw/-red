@@ -2,7 +2,6 @@
 # -*- coding: UTF-8 -*-
 import sys
 import time
-import tushare
 import requests
 stockWithBankuaiFile = open('./jqka/stock.txt', 'r')
 # stockWithData = open('./tushare/stock.txt','r')
@@ -28,11 +27,29 @@ bankuaiWithDataFile = open('./jqka/bankuai.txt','r')
 for line in bankuaiWithDataFile:
     items = line.replace("\n","").split(' ')
     data = {}
-    data['name'] = items[]
-    data['overNum'] = int(items[])
-    data['avgRatio'] = float(items[])
+    data['name'] = items[2]
+    data['overNum'] = int(items[3])
+    data['avgRatio'] = float(items[4])
     bankuaiData[items[0]] = data
-
-stockWithDataFile = open('','r')
+print (bankuaiData)
+stockWithDataFile = open('./tushare/stock_detail.txt','r')
+out = open('./out.csv','w')
+result = ""
 for line in stockWithDataFile:
+    items = line.replace("\n","").split(' ')
+    code = items[0].split(".")[0]
+    name = items[1].decode('utf-8')
+    day = items[2]
+    print(line)
+    if code in stockWithBankuai:
+        print (stockWithBankuai[code])
+        for bankuai in stockWithBankuai[code]:
+            if bankuai in bankuaiData:
+                r = name + ", " + code + ", " + str(day) +", "+ bankuaiData[bankuai]['name'].decode('utf-8') + ", "+ str(bankuaiData[bankuai]['overNum'])
+                result = result+r+"\n"
+                print(r)
+out.write("股票名称,股票代码,多少天内最高量(20/60/120/240),板块名称,板块进3天涨幅超过1.5%天数\n")
+out.write(result.encode('utf-8'))
+
+
     

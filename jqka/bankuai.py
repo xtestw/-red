@@ -53,6 +53,7 @@ def getBankuaiZhangfu(code):
         if (rate>= 0.015):
             num = num +1
     avgRate = (float(dailyData[-1].split(",")[4]) -float(dailyData[-4].split(",")[4]))/float(dailyData[-4].split(",")[4]) / 3
+    #近三天涨幅>1.5%的天数 平均涨幅 价格
     return str(num) + " " +str(avgRate)+ " " + price
 
 
@@ -96,6 +97,7 @@ for item in r.html.find(".cate_items a"):
         name = item.text
         num = getBankuaiZhangfu(code)
         content = content+ linkCode+ " "+code+ " "+name+" "+str(num) +"\n"
+        #板块代码 板块代码 板块名称 近三天涨幅>1.5%的天数 平均涨幅 价格
         print (linkCode+ " "+ code+ " "+name+" "+str(num))
         # break
     except BaseException:

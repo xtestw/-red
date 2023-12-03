@@ -126,6 +126,11 @@ def calPriceRatio(ts_code, df):
 # highVolDay = judgeVol('xx', history, row)
 # print(highVolDay)
 df = getAllStockCode()
+allStock = ""
+for row in df.itertuples(): 
+    allStock = allStock + getattr(row,'ts_code') + " "+getattr(row,'name') +"\n"
+ff = open('./all_stock.txt', 'w')
+ff.write(allStock)
 cur = int(time.time())
 cnt = 0
 f = open('./stock_detail.txt', 'w')
