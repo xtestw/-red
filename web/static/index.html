@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Red-Stock</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary-color: #667eea;
+            --primary-hover: #5568d3;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #17a2b8;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --shadow-sm: 0 2px 4px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.15);
+            --radius: 12px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: var(--radius);
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 20s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-10%, -10%) scale(1.1); }
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .filter-section {
+            background: var(--card-bg);
+            padding: 28px;
+            border-radius: var(--radius);
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-md);
+            transition: var(--transition);
+        }
+        
+        .filter-section:hover {
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .filter-section h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .filter-section h3::before {
+            content: '🔍';
+            font-size: 24px;
+        }
+        
+        .filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .filter-item {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .filter-item label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .filter-item input,
+        .filter-item select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            transition: var(--transition);
+            background: var(--card-bg);
+        }
+        
+        .filter-item input:focus,
+        .filter-item select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: var(--transition);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        
+        .btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-secondary {
+            background: var(--secondary-color);
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn-success {
+            background: var(--success-color);
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .btn-info {
+            background: var(--info-color);
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
+        .stock-list {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            transition: var(--transition);
+        }
+        
+        .stock-list:hover {
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .stock-list table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .stock-list th {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+            font-size: 14px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .stock-list td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            transition: var(--transition);
+        }
+        
+        .stock-list tr {
+            transition: var(--transition);
+        }
+        
+        .stock-list tr:hover {
+            background: linear-gradient(90deg, #f8f9fa 0%, #ffffff 100%);
+            transform: scale(1.01);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .stock-list tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .stock-detail {
+            background: var(--card-bg);
+            padding: 32px;
+            border-radius: var(--radius);
+            margin-top: 24px;
+            box-shadow: var(--shadow-lg);
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .stock-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        .stock-detail-header h2 {
+            color: var(--primary-color);
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .chart-container {
+            width: 100%;
+            height: 450px;
+            margin-bottom: 24px;
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: var(--card-bg);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: var(--transition);
+            position: relative;
+            margin-bottom: -2px;
+        }
+        
+        .tab:hover {
+            color: var(--primary-color);
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 24px;
+            background: var(--card-bg);
+        }
+        
+        .pagination button {
+            padding: 10px 18px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: var(--transition);
+            color: var(--text-primary);
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .pagination span {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+        
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 12px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid var(--danger-color);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .moneyflow-table {
+            width: 100%;
+            margin-top: 24px;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .moneyflow-table thead {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+        
+        .moneyflow-table th {
+            padding: 14px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        .moneyflow-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+        }
+        
+        .moneyflow-table tbody tr:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .positive {
+            color: var(--danger-color);
+            font-weight: 600;
+        }
+        
+        .negative {
+            color: var(--success-color);
+            font-weight: 600;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px;
+            }
+            
+            .header {
+                padding: 24px;
+            }
+            
+            .header h1 {
+                font-size: 24px;
+            }
+            
+            .filter-section {
+                padding: 20px;
+            }
+            
+            .filter-item {
+                min-width: 100%;
+            }
+            
+            .btn-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+            
+            .stock-list {
+                overflow-x: auto;
+            }
+            
+            .stock-list table {
+                min-width: 800px;
+            }
+            
+            .tabs {
+                overflow-x: auto;
+                flex-wrap: nowrap;
+            }
+            
+            .tab {
+                white-space: nowrap;
+            }
+        }
+        
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+        
+        /* 复选框样式 */
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+        }
+        
+        /* 数字格式化 */
+        .number {
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 Red-Stock</h1>
+            <p>实时股票数据查询与分析平台 | 专业 · 高效 · 智能</p>
+        </div>
+        
+        <!-- 筛选区域 -->
+        <div class="filter-section">
+            <h3>股票筛选</h3>
+            <div class="filter-row">
+                <div class="filter-item">
+                    <label>关键词搜索（代码/名称）</label>
+                    <input type="text" id="keyword" placeholder="输入股票代码或名称">
+                </div>
+                <div class="filter-item">
+                    <label>行业</label>
+                    <select id="industry">
+                        <option value="">全部行业</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>市场</label>
+                    <select id="market">
+                        <option value="">全部市场</option>
+                    </select>
+                </div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-item">
+                    <label>最小市值（万元）</label>
+                    <input type="number" id="min_market_value" placeholder="最小市值">
+                </div>
+                <div class="filter-item">
+                    <label>最大市值（万元）</label>
+                    <input type="number" id="max_market_value" placeholder="最大市值">
+                </div>
+                <div class="filter-item">
+                    <label>最小市盈率</label>
+                    <input type="number" id="min_pe" placeholder="最小PE">
+                </div>
+                <div class="filter-item">
+                    <label>最大市盈率</label>
+                    <input type="number" id="max_pe" placeholder="最大PE">
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn" onclick="searchStocks()">🔍 搜索</button>
+                <button class="btn btn-secondary" onclick="resetFilters()">🔄 重置</button>
+                <button class="btn btn-success" onclick="showFavorites()">⭐ 我的收藏</button>
+                <button class="btn btn-info" onclick="showCompare()">⚖️ 股票对比</button>
+                <button class="btn btn-info" onclick="showIndustryStats()">📊 行业统计</button>
+            </div>
+        </div>
+        
+        <!-- 股票列表 -->
+        <div class="stock-list">
+            <div id="loading" class="loading" style="display: none;">加载中...</div>
+            <div id="error" class="error" style="display: none;"></div>
+            <table id="stockTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> 全选</th>
+                        <th>股票代码</th>
+                        <th>股票名称</th>
+                        <th>行业</th>
+                        <th>市场</th>
+                        <th>总市值（万元）</th>
+                        <th>市盈率</th>
+                        <th>市净率</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="stockTableBody">
+                </tbody>
+            </table>
+            <div id="pagination" class="pagination" style="display: none;"></div>
+        </div>
+        
+        <!-- 股票详情 -->
+        <div id="stockDetail" class="stock-detail" style="display: none;">
+            <div class="stock-detail-header">
+                <h2 id="stockName"></h2>
+                <button class="btn btn-secondary" onclick="closeDetail()">关闭</button>
+            </div>
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('daily')">日线</button>
+                <button class="tab" onclick="showTab('weekly')">周线</button>
+                <button class="tab" onclick="showTab('monthly')">月线</button>
+                <button class="tab" onclick="showTab('moneyflow')">资金流向</button>
+                <button class="tab" onclick="showTab('indicators')">技术指标</button>
+            </div>
+            <div class="btn-group" style="margin-bottom: 20px;">
+                <button class="btn btn-success" onclick="exportStockData(currentStockCode, 'daily', 'csv')">📥 导出CSV</button>
+                <button class="btn btn-success" onclick="exportStockData(currentStockCode, 'daily', 'excel')">📊 导出Excel</button>
+            </div>
+            <div id="chartContainer" class="chart-container"></div>
+            <div id="moneyflowContainer"></div>
+            <div id="indicatorsContainer"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentStockCode = '';
+        let currentTab = 'daily';
+        let dailyChart = null;
+        let weeklyChart = null;
+        let monthlyChart = null;
+        let moneyflowChart = null;
+        
+        // 页面加载时初始化
+        window.onload = function() {
+            loadIndustries();
+            loadMarkets();
+            searchStocks();
+        };
+        
+        // 加载行业列表
+        async function loadIndustries() {
+            try {
+                const response = await fetch(`${API_BASE}/industries`);
+                const result = await response.json();
+                if (result.code === 0) {
+                    const select = document.getElementById('industry');
+                    result.data.forEach(industry => {
+                        const option = document.createElement('option');
+                        option.value = industry;
+                        option.textContent = industry;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载行业列表失败:', error);
+            }
+        }
+        
+        // 加载市场列表
+        async function loadMarkets() {
+            try {
+                const response = await fetch(`${API_BASE}/markets`);
+                const result = await response.json();
+                if (result.code === 0) {
+                    const select = document.getElementById('market');
+                    result.data.forEach(market => {
+                        const option = document.createElement('option');
+                        option.value = market;
+                        option.textContent = market;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载市场列表失败:', error);
+            }
+        }
+        
+        // 搜索股票
+        async function searchStocks(page = 1) {
+            currentPage = page;
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const table = document.getElementById('stockTable');
+            const tbody = document.getElementById('stockTableBody');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            table.style.display = 'none';
+            
+            const params = new URLSearchParams({
+                page: page,
+                per_page: 50
+            });
+            
+            const keyword = document.getElementById('keyword').value;
+            const industry = document.getElementById('industry').value;
+            const market = document.getElementById('market').value;
+            const min_mv = document.getElementById('min_market_value').value;
+            const max_mv = document.getElementById('max_market_value').value;
+            const min_pe = document.getElementById('min_pe').value;
+            const max_pe = document.getElementById('max_pe').value;
+            
+            if (keyword) params.append('keyword', keyword);
+            if (industry) params.append('industry', industry);
+            if (market) params.append('market', market);
+            if (min_mv) params.append('min_market_value', min_mv);
+            if (max_mv) params.append('max_market_value', max_mv);
+            if (min_pe) params.append('min_pe', min_pe);
+            if (max_pe) params.append('max_pe', max_pe);
+            
+            try {
+                const response = await fetch(`${API_BASE}/stocks?${params}`);
+                const result = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (result.code === 0) {
+                    table.style.display = 'table';
+                    tbody.innerHTML = '';
+                    
+                    result.data.stocks.forEach(stock => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><input type="checkbox" class="stock-checkbox" value="${stock.ts_code}" data-name="${stock.name}"></td>
+                            <td>${stock.symbol}</td>
+                            <td>${stock.name}</td>
+                            <td>${stock.industry || '-'}</td>
+                            <td>${stock.market || '-'}</td>
+                            <td class="number">${stock.total_mv ? stock.total_mv.toLocaleString() : '-'}</td>
+                            <td class="number">${stock.pe ? stock.pe.toFixed(2) : '-'}</td>
+                            <td class="number">${stock.pb ? stock.pb.toFixed(2) : '-'}</td>
+                            <td>
+                                <button class="btn" onclick="showStockDetail('${stock.ts_code}')" style="margin-right: 8px; padding: 8px 16px; font-size: 13px;">📊 详情</button>
+                                <button class="btn btn-secondary" onclick="toggleFavorite('${stock.ts_code}')" id="fav_${stock.ts_code}" style="padding: 8px 16px; font-size: 13px;">⭐ 收藏</button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                    
+                    // 更新收藏状态
+                    updateFavoriteStatus();
+                    
+                    totalPages = result.data.total_pages;
+                    updatePagination();
+                } else {
+                    error.style.display = 'block';
+                    error.textContent = result.message || '查询失败';
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                error.style.display = 'block';
+                error.textContent = '网络错误: ' + error.message;
+            }
+        }
+        
+        // 更新分页
+        function updatePagination() {
+            const pagination = document.getElementById('pagination');
+            pagination.style.display = 'flex';
+            pagination.innerHTML = `
+                <button onclick="searchStocks(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>
+                <span>第 ${currentPage} 页 / 共 ${totalPages} 页</span>
+                <button onclick="searchStocks(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>
+            `;
+        }
+        
+        // 重置筛选条件
+        function resetFilters() {
+            document.getElementById('keyword').value = '';
+            document.getElementById('industry').value = '';
+            document.getElementById('market').value = '';
+            document.getElementById('min_market_value').value = '';
+            document.getElementById('max_market_value').value = '';
+            document.getElementById('min_pe').value = '';
+            document.getElementById('max_pe').value = '';
+            searchStocks(1);
+        }
+        
+        // 显示股票详情
+        async function showStockDetail(ts_code) {
+            currentStockCode = ts_code;
+            const detail = document.getElementById('stockDetail');
+            detail.style.display = 'block';
+            
+            // 获取股票基本信息
+            try {
+                const response = await fetch(`${API_BASE}/stocks/${ts_code}`);
+                const result = await response.json();
+                if (result.code === 0) {
+                    document.getElementById('stockName').textContent = `${result.data.name} (${result.data.symbol})`;
+                }
+            } catch (error) {
+                console.error('获取股票信息失败:', error);
+            }
+            
+            // 显示日线
+            showTab('daily');
+            
+            // 滚动到详情区域
+            detail.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // 关闭详情
+        function closeDetail() {
+            document.getElementById('stockDetail').style.display = 'none';
+        }
+        
+        // 切换标签页
+        function showTab(tab) {
+            currentTab = tab;
+            
+            // 更新标签样式
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // 显示对应内容
+            if (tab === 'moneyflow') {
+                loadMoneyflow();
+            } else if (tab === 'indicators') {
+                loadIndicators();
+            } else {
+                loadKlineData(tab);
+            }
+        }
+        
+        // 加载K线数据
+        async function loadKlineData(type) {
+            const container = document.getElementById('chartContainer');
+            container.style.display = 'block';
+            document.getElementById('moneyflowContainer').style.display = 'none';
+            
+            try {
+                const response = await fetch(`${API_BASE}/stocks/${currentStockCode}/${type}?limit=100`);
+                const result = await response.json();
+                
+                if (result.code === 0 && result.data.length > 0) {
+                    const data = result.data.reverse(); // 反转数据，从旧到新
+                    
+                    const dates = data.map(d => d.trade_date);
+                    const opens = data.map(d => d.open);
+                    const highs = data.map(d => d.high);
+                    const lows = data.map(d => d.low);
+                    const closes = data.map(d => d.close);
+                    const volumes = data.map(d => d.vol);
+                    
+                    const klineData = data.map(d => [d.open, d.close, d.low, d.high]);
+                    
+                    let chart;
+                    if (type === 'daily') {
+                        if (!dailyChart) {
+                            dailyChart = echarts.init(container);
+                        }
+                        chart = dailyChart;
+                    } else if (type === 'weekly') {
+                        if (!weeklyChart) {
+                            weeklyChart = echarts.init(container);
+                        }
+                        chart = weeklyChart;
+                    } else {
+                        if (!monthlyChart) {
+                            monthlyChart = echarts.init(container);
+                        }
+                        chart = monthlyChart;
+                    }
+                    
+                    const option = {
+                        title: {
+                            text: type === 'daily' ? '日线图' : type === 'weekly' ? '周线图' : '月线图',
+                            left: 'center'
+                        },
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: {
+                                type: 'cross'
+                            }
+                        },
+                        legend: {
+                            data: ['K线', '成交量'],
+                            top: 30
+                        },
+                        grid: [
+                            {
+                                left: '10%',
+                                right: '8%',
+                                top: '15%',
+                                height: '60%'
+                            },
+                            {
+                                left: '10%',
+                                right: '8%',
+                                top: '80%',
+                                height: '15%'
+                            }
+                        ],
+                        xAxis: [
+                            {
+                                type: 'category',
+                                data: dates,
+                                scale: true,
+                                boundaryGap: false,
+                                axisLine: { onZero: false },
+                                splitLine: { show: false },
+                                min: 'dataMin',
+                                max: 'dataMax'
+                            },
+                            {
+                                type: 'category',
+                                gridIndex: 1,
+                                data: dates,
+                                scale: true,
+                                boundaryGap: false,
+                                axisLine: { onZero: false },
+                                axisTick: { show: false },
+                                splitLine: { show: false },
+                                min: 'dataMin',
+                                max: 'dataMax'
+                            }
+                        ],
+                        yAxis: [
+                            {
+                                scale: true,
+                                splitArea: {
+                                    show: true
+                                }
+                            },
+                            {
+                                scale: true,
+                                gridIndex: 1,
+                                splitNumber: 2,
+                                axisLabel: { show: false },
+                                axisLine: { show: false },
+                                axisTick: { show: false },
+                                splitLine: { show: false }
+                            }
+                        ],
+                        dataZoom: [
+                            {
+                                type: 'inside',
+                                xAxisIndex: [0, 1],
+                                start: 50,
+                                end: 100
+                            },
+                            {
+                                show: true,
+                                xAxisIndex: [0, 1],
+                                type: 'slider',
+                                top: '95%',
+                                start: 50,
+                                end: 100
+                            }
+                        ],
+                        series: [
+                            {
+                                name: 'K线',
+                                type: 'candlestick',
+                                data: klineData,
+                                itemStyle: {
+                                    color: '#ec0000',
+                                    color0: '#00da3c',
+                                    borderColor: '#8A0000',
+                                    borderColor0: '#008F28'
+                                }
+                            },
+                            {
+                                name: '成交量',
+                                type: 'bar',
+                                xAxisIndex: 1,
+                                yAxisIndex: 1,
+                                data: volumes,
+                                itemStyle: {
+                                    color: function(params) {
+                                        const dataIndex = params.dataIndex;
+                                        if (dataIndex === 0) return '#c23531';
+                                        return closes[dataIndex] >= closes[dataIndex - 1] ? '#c23531' : '#91c7ae';
+                                    }
+                                }
+                            }
+                        ]
+                    };
+                    
+                    chart.setOption(option);
+                }
+            } catch (error) {
+                console.error('加载K线数据失败:', error);
+            }
+        }
+        
+        // 加载资金流向数据
+        async function loadMoneyflow() {
+            const container = document.getElementById('chartContainer');
+            const moneyflowContainer = document.getElementById('moneyflowContainer');
+            container.style.display = 'none';
+            moneyflowContainer.style.display = 'block';
+            
+            try {
+                const response = await fetch(`${API_BASE}/stocks/${currentStockCode}/moneyflow?limit=30`);
+                const result = await response.json();
+                
+                if (result.code === 0 && result.data.length > 0) {
+                    const data = result.data.reverse();
+                    
+                    // 显示表格
+                    let tableHTML = '<table class="moneyflow-table"><thead><tr><th>日期</th><th>小单买入</th><th>小单卖出</th><th>中单买入</th><th>中单卖出</th><th>大单买入</th><th>大单卖出</th><th>特大单买入</th><th>特大单卖出</th><th>净流入</th></tr></thead><tbody>';
+                    
+                    data.forEach(item => {
+                        const net = item.net_mf_amount || 0;
+                        const netClass = net >= 0 ? 'positive' : 'negative';
+                        tableHTML += `
+                            <tr>
+                                <td>${item.trade_date}</td>
+                                <td>${item.buy_sm_amount ? item.buy_sm_amount.toFixed(2) : '-'}</td>
+                                <td>${item.sell_sm_amount ? item.sell_sm_amount.toFixed(2) : '-'}</td>
+                                <td>${item.buy_md_amount ? item.buy_md_amount.toFixed(2) : '-'}</td>
+                                <td>${item.sell_md_amount ? item.sell_md_amount.toFixed(2) : '-'}</td>
+                                <td>${item.buy_lg_amount ? item.buy_lg_amount.toFixed(2) : '-'}</td>
+                                <td>${item.sell_lg_amount ? item.sell_lg_amount.toFixed(2) : '-'}</td>
+                                <td>${item.buy_elg_amount ? item.buy_elg_amount.toFixed(2) : '-'}</td>
+                                <td>${item.sell_elg_amount ? item.sell_elg_amount.toFixed(2) : '-'}</td>
+                                <td class="${netClass}">${net.toFixed(2)}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += '</tbody></table>';
+                    moneyflowContainer.innerHTML = tableHTML;
+                    
+                    // 绘制图表
+                    const chartDiv = document.createElement('div');
+                    chartDiv.className = 'chart-container';
+                    chartDiv.style.marginTop = '24px';
+                    moneyflowContainer.appendChild(chartDiv);
+                    
+                    if (!moneyflowChart) {
+                        moneyflowChart = echarts.init(chartDiv);
+                    }
+                    
+                    const dates = data.map(d => d.trade_date);
+                    const netAmounts = data.map(d => d.net_mf_amount || 0);
+                    
+                    const option = {
+                        title: {
+                            text: '资金流向趋势图',
+                            left: 'center',
+                            textStyle: { fontSize: 16, fontWeight: 600 }
+                        },
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: {
+                                type: 'cross',
+                                label: { backgroundColor: '#667eea' }
+                            },
+                            formatter: function(params) {
+                                const data = params[0];
+                                const color = data.value >= 0 ? 'red' : 'green';
+                                return `${data.name}<br/>${data.seriesName}: <span style="color:${color}">${data.value.toFixed(2)}</span> 万元`;
+                            }
+                        },
+                        grid: {
+                            left: '3%',
+                            right: '4%',
+                            bottom: '3%',
+                            top: '15%',
+                            containLabel: true
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: dates,
+                            axisLabel: { rotate: 45 }
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '净流入（万元）',
+                            splitLine: {
+                                show: true,
+                                lineStyle: { type: 'dashed' }
+                            }
+                        },
+                        series: [{
+                            name: '净流入',
+                            type: 'bar',
+                            data: netAmounts,
+                            itemStyle: {
+                                color: function(params) {
+                                    return params.value >= 0 ? '#dc3545' : '#28a745';
+                                },
+                                borderRadius: [4, 4, 0, 0]
+                            },
+                            emphasis: {
+                                itemStyle: {
+                                    shadowBlur: 10,
+                                    shadowOffsetX: 0,
+                                    shadowColor: 'rgba(0, 0, 0, 0.5)'
+                                }
+                            }
+                        }]
+                    };
+                    
+                    moneyflowChart.setOption(option);
+                } else {
+                    moneyflowContainer.innerHTML = '<p>暂无资金流向数据</p>';
+                }
+            } catch (error) {
+                console.error('加载资金流向数据失败:', error);
+                moneyflowContainer.innerHTML = '<p class="error">加载失败: ' + error.message + '</p>';
+            }
+        }
+        
+        // 全选/取消全选
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.stock-checkbox');
+            checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        }
+        
+        // 收藏/取消收藏
+        async function toggleFavorite(ts_code) {
+            const btn = document.getElementById(`fav_${ts_code}`);
+            const isFavorited = btn.textContent === '已收藏';
+            
+            try {
+                if (isFavorited) {
+                    // 取消收藏
+                    const response = await fetch(`${API_BASE}/favorites/${ts_code}?user_id=default`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    if (result.code === 0) {
+                        btn.textContent = '收藏';
+                        btn.classList.remove('btn-secondary');
+                    }
+                } else {
+                    // 添加收藏
+                    const response = await fetch(`${API_BASE}/favorites`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ts_code: ts_code, user_id: 'default'})
+                    });
+                    const result = await response.json();
+                    if (result.code === 0) {
+                        btn.textContent = '已收藏';
+                        btn.classList.add('btn-secondary');
+                    }
+                }
+            } catch (error) {
+                console.error('操作失败:', error);
+                alert('操作失败: ' + error.message);
+            }
+        }
+        
+        // 更新收藏状态
+        async function updateFavoriteStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/favorites?user_id=default`);
+                const result = await response.json();
+                if (result.code === 0) {
+                    const favoriteCodes = result.data.map(s => s.ts_code);
+                    favoriteCodes.forEach(code => {
+                        const btn = document.getElementById(`fav_${code}`);
+                        if (btn) {
+                            btn.textContent = '已收藏';
+                            btn.classList.add('btn-secondary');
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('更新收藏状态失败:', error);
+            }
+        }
+        
+        // 显示收藏列表
+        async function showFavorites() {
+            try {
+                const response = await fetch(`${API_BASE}/favorites?user_id=default`);
+                const result = await response.json();
+                if (result.code === 0) {
+                    if (result.data.length === 0) {
+                        alert('暂无收藏的股票');
+                        return;
+                    }
+                    // 显示收藏的股票
+                    const tbody = document.getElementById('stockTableBody');
+                    tbody.innerHTML = '';
+                    result.data.forEach(stock => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><input type="checkbox" class="stock-checkbox" value="${stock.ts_code}" data-name="${stock.name}"></td>
+                            <td>${stock.symbol}</td>
+                            <td>${stock.name}</td>
+                            <td>${stock.industry || '-'}</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>
+                                <button class="btn" onclick="showStockDetail('${stock.ts_code}')" style="margin-right: 5px;">详情</button>
+                                <button class="btn btn-secondary" onclick="toggleFavorite('${stock.ts_code}')" id="fav_${stock.ts_code}">已收藏</button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                    document.getElementById('stockTable').style.display = 'table';
+                    document.getElementById('pagination').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('加载收藏列表失败:', error);
+                alert('加载失败: ' + error.message);
+            }
+        }
+        
+        // 股票对比
+        async function showCompare() {
+            const checkboxes = document.querySelectorAll('.stock-checkbox:checked');
+            if (checkboxes.length < 2) {
+                alert('请至少选择2只股票进行对比');
+                return;
+            }
+            if (checkboxes.length > 10) {
+                alert('最多只能对比10只股票');
+                return;
+            }
+            
+            const ts_codes = Array.from(checkboxes).map(cb => cb.value);
+            
+            try {
+                const response = await fetch(`${API_BASE}/stocks/compare`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ts_codes: ts_codes})
+                });
+                const result = await response.json();
+                
+                if (result.code === 0) {
+                    // 创建对比表格
+                    let html = '<div class="stock-detail"><h2>股票对比</h2><table class="moneyflow-table"><thead><tr>';
+                    html += '<th>股票代码</th><th>股票名称</th><th>行业</th><th>收盘价</th><th>涨跌幅</th><th>总市值（万元）</th><th>市盈率</th><th>市净率</th>';
+                    html += '</tr></thead><tbody>';
+                    
+                    result.data.forEach(stock => {
+                        html += `<tr>
+                            <td>${stock.symbol}</td>
+                            <td>${stock.name}</td>
+                            <td>${stock.industry || '-'}</td>
+                            <td>${stock.close ? stock.close.toFixed(2) : '-'}</td>
+                            <td class="${stock.pct_chg >= 0 ? 'positive' : 'negative'}">${stock.pct_chg ? stock.pct_chg.toFixed(2) + '%' : '-'}</td>
+                            <td>${stock.total_mv ? stock.total_mv.toLocaleString() : '-'}</td>
+                            <td>${stock.pe ? stock.pe.toFixed(2) : '-'}</td>
+                            <td>${stock.pb ? stock.pb.toFixed(2) : '-'}</td>
+                        </tr>`;
+                    });
+                    
+                    html += '</tbody></table><div class="btn-group" style="margin-top: 20px;"><button class="btn btn-secondary" onclick="document.querySelector(\'.stock-detail\').remove()">关闭</button></div></div>';
+                    
+                    const container = document.querySelector('.container');
+                    const compareDiv = document.createElement('div');
+                    compareDiv.innerHTML = html;
+                    container.appendChild(compareDiv);
+                    compareDiv.scrollIntoView({ behavior: 'smooth' });
+                }
+            } catch (error) {
+                console.error('对比失败:', error);
+                alert('对比失败: ' + error.message);
+            }
+        }
+        
+        // 行业统计
+        async function showIndustryStats() {
+            try {
+                const response = await fetch(`${API_BASE}/industries/statistics`);
+                const result = await response.json();
+                
+                if (result.code === 0) {
+                    let html = '<div class="stock-detail"><h2>行业统计</h2><table class="moneyflow-table"><thead><tr>';
+                    html += '<th>行业</th><th>股票数量</th><th>平均市值（万元）</th><th>总市值（万元）</th><th>平均PE</th><th>最低PE</th><th>最高PE</th>';
+                    html += '</tr></thead><tbody>';
+                    
+                    result.data.forEach(stat => {
+                        html += `<tr>
+                            <td>${stat.industry}</td>
+                            <td>${stat.stock_count}</td>
+                            <td>${stat.avg_market_value ? stat.avg_market_value.toLocaleString('zh-CN', {maximumFractionDigits: 0}) : '-'}</td>
+                            <td>${stat.total_market_value ? stat.total_market_value.toLocaleString('zh-CN', {maximumFractionDigits: 0}) : '-'}</td>
+                            <td>${stat.avg_pe ? stat.avg_pe.toFixed(2) : '-'}</td>
+                            <td>${stat.min_pe ? stat.min_pe.toFixed(2) : '-'}</td>
+                            <td>${stat.max_pe ? stat.max_pe.toFixed(2) : '-'}</td>
+                        </tr>`;
+                    });
+                    
+                    html += '</tbody></table><div class="btn-group" style="margin-top: 20px;"><button class="btn btn-secondary" onclick="document.querySelector(\'.stock-detail:last-child\').remove()">关闭</button></div></div>';
+                    
+                    const container = document.querySelector('.container');
+                    const statsDiv = document.createElement('div');
+                    statsDiv.innerHTML = html;
+                    container.appendChild(statsDiv);
+                    statsDiv.scrollIntoView({ behavior: 'smooth' });
+                }
+            } catch (error) {
+                console.error('加载行业统计失败:', error);
+                alert('加载失败: ' + error.message);
+            }
+        }
+        
+        // 导出数据
+        function exportStockData(ts_code, period = 'daily', format = 'csv') {
+            window.open(`${API_BASE}/stocks/${ts_code}/export?period=${period}&format=${format}`, '_blank');
+        }
+        
+        // 加载技术指标
+        async function loadIndicators() {
+            const container = document.getElementById('chartContainer');
+            const indicatorsContainer = document.getElementById('indicatorsContainer');
+            container.style.display = 'none';
+            document.getElementById('moneyflowContainer').style.display = 'none';
+            indicatorsContainer.style.display = 'block';
+            
+            try {
+                const response = await fetch(`${API_BASE}/stocks/${currentStockCode}/indicators?period=daily&limit=100`);
+                const result = await response.json();
+                
+                if (result.code === 0 && result.data.indicators.length > 0) {
+                    const indicators = result.data.indicators;
+                    const signals = result.data.signals || {};
+                    
+                    // 显示技术信号
+                    let signalsHtml = '<div style="margin-bottom: 24px; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);"><h3 style="margin-bottom: 16px; color: #212529; font-size: 18px; font-weight: 600;">🎯 技术信号</h3><div style="display: flex; flex-wrap: wrap; gap: 12px;">';
+                    if (Object.keys(signals).length === 0) {
+                        signalsHtml += '<span>暂无明确信号</span>';
+                    } else {
+                        if (signals.ma_golden_cross) signalsHtml += '<span style="background: #28a745; color: white; padding: 5px 10px; border-radius: 3px;">MA金叉</span>';
+                        if (signals.ma_death_cross) signalsHtml += '<span style="background: #dc3545; color: white; padding: 5px 10px; border-radius: 3px;">MA死叉</span>';
+                        if (signals.macd_buy) signalsHtml += '<span style="background: #28a745; color: white; padding: 5px 10px; border-radius: 3px;">MACD买入</span>';
+                        if (signals.macd_sell) signalsHtml += '<span style="background: #dc3545; color: white; padding: 5px 10px; border-radius: 3px;">MACD卖出</span>';
+                        if (signals.rsi_oversold) signalsHtml += '<span style="background: #ffc107; color: black; padding: 5px 10px; border-radius: 3px;">RSI超卖</span>';
+                        if (signals.rsi_overbought) signalsHtml += '<span style="background: #ffc107; color: black; padding: 5px 10px; border-radius: 3px;">RSI超买</span>';
+                        if (signals.kdj_golden_cross) signalsHtml += '<span style="background: #28a745; color: white; padding: 5px 10px; border-radius: 3px;">KDJ金叉</span>';
+                        if (signals.kdj_death_cross) signalsHtml += '<span style="background: #dc3545; color: white; padding: 5px 10px; border-radius: 3px;">KDJ死叉</span>';
+                    }
+                    signalsHtml += '</div></div>';
+                    
+                    // 显示最新指标值
+                    const latest = indicators[indicators.length - 1];
+                    let indicatorsHtml = '<div style="margin-top: 24px;"><h3 style="margin-bottom: 16px; color: #212529; font-size: 18px; font-weight: 600;">📈 技术指标值</h3><table class="moneyflow-table"><thead><tr><th>指标名称</th><th>当前数值</th></tr></thead><tbody>';
+                    if (latest.ma5) indicatorsHtml += `<tr><td>MA5</td><td>${latest.ma5.toFixed(2)}</td></tr>`;
+                    if (latest.ma10) indicatorsHtml += `<tr><td>MA10</td><td>${latest.ma10.toFixed(2)}</td></tr>`;
+                    if (latest.ma20) indicatorsHtml += `<tr><td>MA20</td><td>${latest.ma20.toFixed(2)}</td></tr>`;
+                    if (latest.ma30) indicatorsHtml += `<tr><td>MA30</td><td>${latest.ma30.toFixed(2)}</td></tr>`;
+                    if (latest.ma60) indicatorsHtml += `<tr><td>MA60</td><td>${latest.ma60.toFixed(2)}</td></tr>`;
+                    if (latest.macd !== null) indicatorsHtml += `<tr><td>MACD</td><td>${latest.macd.toFixed(4)}</td></tr>`;
+                    if (latest.macd_signal !== null) indicatorsHtml += `<tr><td>MACD信号线</td><td>${latest.macd_signal.toFixed(4)}</td></tr>`;
+                    if (latest.rsi !== null) indicatorsHtml += `<tr><td>RSI</td><td>${latest.rsi.toFixed(2)}</td></tr>`;
+                    if (latest.kdj_k !== null) indicatorsHtml += `<tr><td>KDJ-K</td><td>${latest.kdj_k.toFixed(2)}</td></tr>`;
+                    if (latest.kdj_d !== null) indicatorsHtml += `<tr><td>KDJ-D</td><td>${latest.kdj_d.toFixed(2)}</td></tr>`;
+                    if (latest.kdj_j !== null) indicatorsHtml += `<tr><td>KDJ-J</td><td>${latest.kdj_j.toFixed(2)}</td></tr>`;
+                    indicatorsHtml += '</tbody></table></div>';
+                    
+                    indicatorsContainer.innerHTML = signalsHtml + indicatorsHtml;
+                    
+                    // 绘制MACD图表
+                    const macdChart = echarts.init(indicatorsContainer);
+                    const dates = indicators.map(i => i.trade_date);
+                    const macd = indicators.map(i => i.macd || 0);
+                    const signal = indicators.map(i => i.macd_signal || 0);
+                    const hist = indicators.map(i => i.macd_hist || 0);
+                    
+                    const macdChartContainer = document.createElement('div');
+                    macdChartContainer.className = 'chart-container';
+                    macdChartContainer.style.marginTop = '24px';
+                    indicatorsContainer.appendChild(macdChartContainer);
+                    
+                    const macdChartInstance = echarts.init(macdChartContainer);
+                    macdChartInstance.setOption({
+                        title: { 
+                            text: 'MACD指标走势图', 
+                            left: 'center',
+                            textStyle: { fontSize: 16, fontWeight: 600 }
+                        },
+                        tooltip: { 
+                            trigger: 'axis',
+                            axisPointer: { type: 'cross' }
+                        },
+                        legend: {
+                            data: ['MACD', '信号线', '柱状图'],
+                            top: 35
+                        },
+                        grid: {
+                            left: '3%',
+                            right: '4%',
+                            bottom: '3%',
+                            top: '15%',
+                            containLabel: true
+                        },
+                        xAxis: { 
+                            type: 'category', 
+                            data: dates,
+                            boundaryGap: false
+                        },
+                        yAxis: { 
+                            type: 'value',
+                            splitLine: {
+                                show: true,
+                                lineStyle: { type: 'dashed' }
+                            }
+                        },
+                        series: [
+                            { 
+                                name: 'MACD', 
+                                type: 'line', 
+                                data: macd,
+                                smooth: true,
+                                itemStyle: { color: '#667eea' },
+                                lineStyle: { width: 2 }
+                            },
+                            { 
+                                name: '信号线', 
+                                type: 'line', 
+                                data: signal,
+                                smooth: true,
+                                itemStyle: { color: '#f093fb' },
+                                lineStyle: { width: 2 }
+                            },
+                            { 
+                                name: '柱状图', 
+                                type: 'bar', 
+                                data: hist,
+                                itemStyle: {
+                                    color: function(params) {
+                                        return params.value >= 0 ? '#28a745' : '#dc3545';
+                                    }
+                                }
+                            }
+                        ]
+                    });
+                } else {
+                    indicatorsContainer.innerHTML = '<p>暂无技术指标数据</p>';
+                }
+            } catch (error) {
+                console.error('加载技术指标失败:', error);
+                indicatorsContainer.innerHTML = '<p class="error">加载失败: ' + error.message + '</p>';
+            }
+        }
+    </script>
+</body>
+</html>
+
