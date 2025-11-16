@@ -172,16 +172,40 @@ def fetch_stock_company(ts_code=None, exchange=None):
     
     session = get_session()
     try:
-        # 获取需要更新的股票列表
-        if ts_code:
-            stocks = session.query(StockBasic).filter_by(ts_code=ts_code).all()
-        else:
-            # 获取所有股票，优先更新没有公司信息的股票
-            stocks = session.query(StockBasic).all()
+        # 检查表结构，确定哪些字段存在
+        from sqlalchemy import inspect, text
+        inspector = inspect(session.bind)
+        try:
+            columns = [col['name'] for col in inspector.get_columns('stock_basic')]
+        except Exception:
+            # 如果 inspect 失败，使用原始 SQL 查询
+            result = session.execute(text("SHOW COLUMNS FROM stock_basic"))
+            columns = [row[0] for row in result]
         
-        if not stocks:
+        # 检查是否需要升级数据库（如果缺少公司信息字段）
+        required_fields = ['com_name', 'com_id', 'chairman', 'manager', 'secretary']
+        missing_fields = [f for f in required_fields if f not in columns]
+        
+        if missing_fields:
+            logger.warning(f"检测到表结构缺少字段: {', '.join(missing_fields)}")
+            print(f"\n⚠️  警告: 数据库表 stock_basic 缺少以下字段: {', '.join(missing_fields)}")
+            print("   建议执行以下命令升级数据库:")
+            print("   python upgrade_database.py")
+            print("   或者手动执行: mysql -u root -p stock_data < upgrade_database.sql")
+            print("   继续执行，将跳过这些字段的更新...\n")
+        
+        # 获取需要更新的股票代码列表（只查询 ts_code，避免查询不存在的字段）
+        if ts_code:
+            stock_codes = [ts_code]
+        else:
+            # 只查询 ts_code 字段，避免加载所有字段
+            stock_codes = [row[0] for row in session.query(StockBasic.ts_code).all()]
+        
+        if not stock_codes:
             print("没有找到需要更新的股票")
             return
+        
+        print(f"找到 {len(stock_codes)} 只股票需要更新公司信息")
         
         # 按交易所分组处理（stock_company接口支持按交易所批量获取）
         exchanges = ['SSE', 'SZSE', 'BSE'] if not exchange else [exchange]
@@ -210,31 +234,63 @@ def fetch_stock_company(ts_code=None, exchange=None):
                 
                 print(f"{exch} 交易所获取到 {len(df)} 条公司信息")
                 
-                # 更新数据库
+                # 更新数据库（使用原始 SQL 更新，避免查询不存在的字段）
+                from sqlalchemy import text
+                
                 for _, row in df.iterrows():
-                    stock = session.query(StockBasic).filter_by(ts_code=row['ts_code']).first()
-                    if stock:
-                        # 更新公司信息字段
-                        stock.com_name = row.get('com_name', '') if pd.notna(row.get('com_name')) else None
-                        stock.com_id = row.get('com_id', '') if pd.notna(row.get('com_id')) else None
-                        stock.chairman = row.get('chairman', '') if pd.notna(row.get('chairman')) else None
-                        stock.manager = row.get('manager', '') if pd.notna(row.get('manager')) else None
-                        stock.secretary = row.get('secretary', '') if pd.notna(row.get('secretary')) else None
-                        stock.reg_capital = float(row.get('reg_capital')) if pd.notna(row.get('reg_capital')) else None
-                        stock.setup_date = str(row.get('setup_date', '')) if pd.notna(row.get('setup_date')) else None
-                        stock.province = row.get('province', '') if pd.notna(row.get('province')) else None
-                        stock.city = row.get('city', '') if pd.notna(row.get('city')) else None
-                        stock.introduction = row.get('introduction', '') if pd.notna(row.get('introduction')) else None
-                        stock.website = row.get('website', '') if pd.notna(row.get('website')) else None
-                        stock.email = row.get('email', '') if pd.notna(row.get('email')) else None
-                        stock.office = row.get('office', '') if pd.notna(row.get('office')) else None
-                        stock.employees = int(row.get('employees')) if pd.notna(row.get('employees')) else None
-                        stock.main_business = row.get('main_business', '') if pd.notna(row.get('main_business')) else None
-                        stock.business_scope = row.get('business_scope', '') if pd.notna(row.get('business_scope')) else None
-                        stock.updated_at = datetime.now()
+                    ts_code_val = row['ts_code']
+                    if ts_code_val not in stock_codes:
+                        continue
+                    
+                    # 构建更新 SQL，只更新存在的字段
+                    update_fields = []
+                    update_values = {}
+                    
+                    field_mapping = {
+                        'com_name': ('com_name', str),
+                        'com_id': ('com_id', str),
+                        'chairman': ('chairman', str),
+                        'manager': ('manager', str),
+                        'secretary': ('secretary', str),
+                        'reg_capital': ('reg_capital', float),
+                        'setup_date': ('setup_date', str),
+                        'province': ('province', str),
+                        'city': ('city', str),
+                        'introduction': ('introduction', str),
+                        'website': ('website', str),
+                        'email': ('email', str),
+                        'office': ('office', str),
+                        'employees': ('employees', int),
+                        'main_business': ('main_business', str),
+                        'business_scope': ('business_scope', str),
+                    }
+                    
+                    for field_key, (db_field, field_type) in field_mapping.items():
+                        if db_field in columns:  # 只更新存在的字段
+                            value = row.get(field_key)
+                            if pd.notna(value):
+                                if field_type == float:
+                                    update_values[db_field] = float(value)
+                                elif field_type == int:
+                                    update_values[db_field] = int(value)
+                                else:
+                                    update_values[db_field] = str(value) if value else None
+                                update_fields.append(f"`{db_field}` = :{db_field}")
+                            else:
+                                update_values[db_field] = None
+                                update_fields.append(f"`{db_field}` = NULL")
+                    
+                    if update_fields:
+                        # 添加 updated_at
+                        update_fields.append("`updated_at` = NOW()")
+                        update_values['ts_code'] = ts_code_val
+                        
+                        # 执行更新
+                        sql = f"UPDATE stock_basic SET {', '.join(update_fields)} WHERE ts_code = :ts_code"
+                        session.execute(text(sql), update_values)
                         total_updated += 1
                     else:
-                        print(f"警告: 股票 {row['ts_code']} 在 stock_basic 表中不存在，跳过")
+                        print(f"警告: 股票 {ts_code_val} 的表结构中没有公司信息字段，请先执行 upgrade_database.sql")
                 
                 session.commit()
                 print(f"{exch} 交易所更新完成，共更新 {len(df)} 条记录")
@@ -403,8 +459,14 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                 stocks = session.query(StockBasic).all()
                 codes = [stock.ts_code for stock in stocks]
             
+            total_stocks = len(codes)
             for i, code in enumerate(codes):
                 try:
+                    # 每处理100个股票显示一次进度（全量模式时）
+                    if (i + 1) % 100 == 0 or i == 0:
+                        progress = (i + 1) / total_stocks * 100
+                        print(f"进度: {i+1}/{total_stocks} ({progress:.1f}%) - 当前处理: {code}")
+                    
                     # 检查是否需要等待（每分钟50次限制）
                     current_time = time.time()
                     elapsed = current_time - minute_start_time
@@ -413,7 +475,7 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                         # 重置计数器
                         request_count = 0
                         minute_start_time = current_time
-                        print(f"限速窗口重置，已处理 {i}/{len(codes)} 个股票")
+                        print(f"限速窗口重置，已处理 {i}/{total_stocks} 个股票 ({i/total_stocks*100:.1f}%)")
                     elif request_count >= MAX_REQUESTS_PER_MINUTE:
                         # 等待到下一分钟
                         wait_time = 60 - elapsed + 1
@@ -439,8 +501,17 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                     
                     if df.empty:
                         # 即使没有数据，也要等待间隔
+                        logger.warning(f"{code}: 日期范围 {start_date} 至 {end_date} 内没有数据（可能是非交易日或停牌）")
                         time.sleep(REQUEST_INTERVAL)
                         continue
+                    
+                    # 检查返回数据量并记录详细信息
+                    returned_count = len(df)
+                    if returned_count > 0:
+                        trade_dates = sorted(df['trade_date'].unique().tolist())
+                        logger.info(f"{code}: 返回 {returned_count} 条数据，交易日: {', '.join(trade_dates)}")
+                        if returned_count < 5 and (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days >= 5:
+                            logger.info(f"{code}: 注意 - 日期范围 {start_date} 至 {end_date} 包含非交易日或停牌日")
                     
                     # 检查返回数据量
                     if len(df) > MAX_RECORDS_PER_REQUEST:
@@ -475,7 +546,9 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                     if new_records:
                         session.add_all(new_records)
                         session.commit()
-                        print(f"[{i+1}/{len(codes)}] {code}: 新增 {len(new_records)} 条数据")
+                        print(f"[{i+1}/{len(codes)}] {code}: 新增 {len(new_records)} 条数据（API返回 {returned_count} 条，已存在 {returned_count - len(new_records)} 条）")
+                    elif returned_count > 0:
+                        print(f"[{i+1}/{len(codes)}] {code}: 无新增数据（API返回 {returned_count} 条，但数据库中已存在）")
                     
                     # 控制请求频率
                     time.sleep(REQUEST_INTERVAL)

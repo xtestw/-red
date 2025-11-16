@@ -56,7 +56,7 @@ python init_database.py
 如果需要立即获取数据，运行：
 
 ```bash
-python server/data_fetcher.py
+python data/data_fetcher/data_fetcher.py
 ```
 
 **注意**：首次获取全市场数据需要较长时间，建议在非交易时间运行。
@@ -66,7 +66,7 @@ python server/data_fetcher.py
 ### 启动Web服务（终端1）
 
 ```bash
-python web/app.py
+python web-server/app.py
 ```
 
 或使用脚本：
@@ -80,7 +80,7 @@ python web/app.py
 ### 启动定时任务（终端2）
 
 ```bash
-python server/scheduler.py
+python data/data_fetcher/scheduler.py
 ```
 
 或使用脚本：

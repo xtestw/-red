@@ -30,12 +30,18 @@ red/
 ├── init_database.py       # 数据库初始化脚本
 ├── start_web.sh           # Web服务启动脚本
 ├── start_scheduler.sh     # 定时任务启动脚本
-├── server/                # 后端服务目录
-│   ├── data_fetcher.py    # 数据获取模块
-│   └── scheduler.py       # 定时任务调度器
-├── web/                   # 后端API服务
+├── data/                  # 数据相关目录
+│   ├── data_fetcher/      # 数据获取模块
+│   │   ├── data_fetcher.py    # 数据获取模块
+│   │   ├── scheduler.py       # 定时任务调度器
+│   │   └── technical_indicators.py  # 技术指标计算
+│   ├── data_analysis/     # 数据分析目录
+│   │   ├── jqka/          # 同花顺数据
+│   │   └── tushare/       # Tushare数据
+│   └── data_gen/          # 数据加工处理目录（根据DB数据进行加工分析）
+├── web-server/            # 后端API服务
 │   └── app.py             # Flask后端API（仅提供API接口）
-└── frontend/              # 前端项目（前后端分离）
+└── web-frontend/          # 前端项目（前后端分离）
     ├── index.html         # 主页面
     ├── config.js          # 前端配置
     ├── api.js             # API封装（支持小程序）
@@ -124,7 +130,7 @@ cp config.json.example config.json
 如果需要立即获取所有数据，可以运行：
 
 ```bash
-python server/data_fetcher.py
+python data/data_fetcher/data_fetcher.py
 ```
 
 **注意**：首次获取全市场数据可能需要较长时间，建议在非交易时间运行。
@@ -139,7 +145,7 @@ chmod +x start_web.sh
 ./start_web.sh
 
 # 方式2：直接运行
-python web/app.py
+python web-server/app.py
 ```
 
 后端API服务将在 `http://localhost:5000` 启动。
@@ -152,7 +158,7 @@ python web/app.py
 
 1. **构建前端**：
 ```bash
-cd frontend
+cd web-frontend
 npm install
 npm run build
 ```
@@ -160,7 +166,7 @@ npm run build
 2. **启动后端服务**（会自动服务前端文件）：
 ```bash
 # 方式1：直接运行
-python web/app.py
+python web-server/app.py
 
 # 方式2：使用启动脚本
 chmod +x start_web.sh
@@ -175,12 +181,12 @@ chmod +x start_web.sh
 
 **终端1 - 启动后端：**
 ```bash
-python web/app.py
+python web-server/app.py
 ```
 
 **终端2 - 启动前端开发服务器：**
 ```bash
-cd frontend
+cd web-frontend
 npm install
 npm run dev
 ```
@@ -195,7 +201,7 @@ chmod +x start_scheduler.sh
 ./start_scheduler.sh
 
 # 方式2：直接运行
-python server/scheduler.py
+python data/data_fetcher/scheduler.py
 ```
 
 定时任务配置：

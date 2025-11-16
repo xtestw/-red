@@ -221,31 +221,31 @@
         </a-row>
       </a-form>
 
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="handleSearch" :loading="loading">
-              <template #icon><SearchOutlined /></template>
-              搜索
-            </a-button>
-            <a-button @click="handleReset">
-              <template #icon><ReloadOutlined /></template>
-              重置
-            </a-button>
-            <a-button type="default" @click="showFavorites">
-              <template #icon><StarOutlined /></template>
-              我的收藏
-            </a-button>
-            <a-button type="default" @click="showCompare">
-              <template #icon><BarChartOutlined /></template>
-              股票对比
-            </a-button>
-            <a-button type="default" @click="showIndustryStats">
-              <template #icon><PieChartOutlined /></template>
-              行业统计
-            </a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
+      <!-- 操作按钮 -->
+      <div style="margin-top: 16px;">
+        <a-space>
+          <a-button type="primary" @click="handleSearch" :loading="loading">
+            <template #icon><SearchOutlined /></template>
+            搜索
+          </a-button>
+          <a-button @click="handleReset">
+            <template #icon><ReloadOutlined /></template>
+            重置
+          </a-button>
+          <a-button type="default" @click="showFavorites">
+            <template #icon><StarOutlined /></template>
+            我的收藏
+          </a-button>
+          <a-button type="default" @click="showCompare">
+            <template #icon><BarChartOutlined /></template>
+            股票对比
+          </a-button>
+          <a-button type="default" @click="showIndustryStats">
+            <template #icon><PieChartOutlined /></template>
+            行业统计
+          </a-button>
+        </a-space>
+      </div>
     </a-card>
 
     <!-- 股票列表 -->

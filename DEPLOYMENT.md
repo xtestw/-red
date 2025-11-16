@@ -7,7 +7,7 @@
 #### 方式1：直接运行（开发环境）
 
 ```bash
-python web/app.py
+python web-server/app.py
 ```
 
 #### 方式2：使用Gunicorn（生产环境）
@@ -17,7 +17,7 @@ python web/app.py
 pip install gunicorn
 
 # 启动服务
-gunicorn -w 4 -b 0.0.0.0:5000 web.app:app
+gunicorn -w 4 -b 0.0.0.0:5000 web-server.app:app
 ```
 
 #### 方式3：使用Docker
@@ -35,7 +35,7 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "web.app:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "web-server.app:app"]
 ```
 
 ```bash

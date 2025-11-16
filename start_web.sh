@@ -2,7 +2,7 @@
 # 启动Web服务
 
 cd "$(dirname "$0")"
-python web/app.py
+python web-server/app.py
 
 
 

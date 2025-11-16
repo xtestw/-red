@@ -114,7 +114,7 @@ token = TUSHARE_TOKEN
 
 1. 启动服务：
 ```bash
-python web/app.py
+python web-server/app.py
 ```
 
 2. 修改 `config.json` 中的某个配置项

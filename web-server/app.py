@@ -24,26 +24,28 @@ import pandas as pd
 import io
 import csv
 
+# 确保logs目录存在（在配置日志之前）
+logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+os.makedirs(logs_dir, exist_ok=True)
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/web_api.log', encoding='utf-8'),
+        logging.FileHandler(os.path.join(logs_dir, 'web_api.log'), encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# 确保logs目录存在
-os.makedirs('logs', exist_ok=True)
-
-# 添加server目录到路径
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'server'))
-from server.technical_indicators import calculate_technical_indicators, get_technical_signals
+# 添加data/data_fetcher目录到路径
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'data_fetcher'))
+# 由于已将 data_fetcher 目录添加到路径，可以直接导入
+from technical_indicators import calculate_technical_indicators, get_technical_signals
 
 # 获取前端构建目录路径
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'dist')
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web-frontend', 'dist')
 
 app = Flask(__name__)
 
