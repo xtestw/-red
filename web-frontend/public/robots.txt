@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://your-domain.com/sitemap.xml
+
+# 禁止爬取的路径
+Disallow: /api/
+Disallow: /admin/
+
