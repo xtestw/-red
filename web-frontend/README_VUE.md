@@ -136,6 +136,27 @@ npm run build
 # 将 dist/ 目录部署到静态服务器
 ```
 
+### Vercel 部署（推荐）
+
+项目已配置支持 Vercel 部署，详细说明请参考 [VERCEL_DEPLOY.md](./VERCEL_DEPLOY.md)
+
+快速部署步骤：
+
+1. **通过 Vercel Dashboard**
+   - 访问 [vercel.com](https://vercel.com) 并登录
+   - 导入 Git 仓库，选择 `web-frontend` 目录
+   - 配置环境变量 `VITE_API_BASE` 为后端 API 地址
+   - 点击部署
+
+2. **通过 Vercel CLI**
+   ```bash
+   npm install -g vercel
+   cd web-frontend
+   vercel login
+   vercel env add VITE_API_BASE
+   vercel --prod
+   ```
+
 ### Nginx配置
 
 ```nginx
