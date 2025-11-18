@@ -1,5 +1,5 @@
 <template>
-  <a-layout style="min-height: 100vh; background: transparent;">
+  <a-layout style="min-height: 100vh; background: transparent; width: 100%; max-width: 100%;">
     <a-layout-header class="header">
       <div class="logo">
         <span class="logo-text">📈 Red-Stock</span>
@@ -12,14 +12,20 @@
         @click="handleMenuClick"
         @update:selectedKeys="handleSelectedKeysChange"
         :forceSubMenuRender="true"
-        :triggerSubMenuAction="'click'"
+        :triggerSubMenuAction="'hover'"
       >
         <a-menu-item key="home">
           <span>🏠 首页</span>
         </a-menu-item>
-        <a-menu-item key="stocks">
-          <span>📊 A股股票</span>
-        </a-menu-item>
+        <a-sub-menu key="stocks">
+          <template #title>📊 A股股票</template>
+          <a-menu-item key="stocks-all">
+            <span>📈 全部股票</span>
+          </a-menu-item>
+          <a-menu-item key="stocks-ipo">
+            <span>🆕 IPO新股</span>
+          </a-menu-item>
+        </a-sub-menu>
         <a-sub-menu key="strategy">
           <template #title>📈 策略</template>
           <a-menu-item key="strategy-selection">
@@ -55,10 +61,11 @@ const router = useRouter()
 const route = useRoute()
 
 // 路由名称到菜单key的映射
-const getRouteKey = (routeName) => {
+const getRouteKey = (routeName, query) => {
   const nameMap = {
     'Dashboard': 'home',
-    'StockList': 'stocks',
+    'StockList': 'stocks-all',
+    'IPOStocks': 'stocks-ipo',
     'StrategySelection': 'strategy-selection',
     'GlobalMarket': 'global',
     'BigPlayerTracking': 'bigplayers'
@@ -67,12 +74,13 @@ const getRouteKey = (routeName) => {
 }
 
 // 初始化选中状态
-const selectedKeys = ref([getRouteKey(route?.name)])
+const selectedKeys = ref([getRouteKey(route?.name, route?.query)])
 
-// 路由映射：菜单key -> 路由名称
+// 路由映射：菜单key -> 路由配置
 const routeMap = {
   'home': { name: 'Dashboard' },
-  'stocks': { name: 'StockList' },
+  'stocks-all': { name: 'StockList' },
+  'stocks-ipo': { name: 'IPOStocks' },
   'strategy-selection': { name: 'StrategySelection' },
   'global': { name: 'GlobalMarket' },
   'bigplayers': { name: 'BigPlayerTracking' }
@@ -80,7 +88,7 @@ const routeMap = {
 
 const navigateToRoute = (key) => {
   // 如果点击的是子菜单的父项，不处理
-  if (key === 'strategy') {
+  if (key === 'strategy' || key === 'stocks') {
     return
   }
   
@@ -90,18 +98,23 @@ const navigateToRoute = (key) => {
     return
   }
   
-  // 获取当前路由名称
+  // 获取当前路由名称和查询参数
   const currentRouteName = route?.name
+  const currentQuery = route?.query || {}
+  
+  // 检查是否已经在目标路由（包括查询参数）
+  const isSameRoute = currentRouteName === routeConfig.name && 
+    JSON.stringify(currentQuery) === JSON.stringify(routeConfig.query || {})
   
   // 如果已经在目标路由，强制刷新
-  if (currentRouteName === routeConfig.name) {
+  if (isSameRoute) {
     console.log('Already on target route, forcing refresh')
     // 强制刷新当前路由
-    router.replace({ ...routeConfig, query: { ...(route?.query || {}), _t: Date.now() } })
+    router.replace({ ...routeConfig, query: { ...(routeConfig.query || {}), _t: Date.now() } })
     return
   }
   
-  console.log('Navigating from', currentRouteName, 'to', routeConfig.name)
+  console.log('Navigating from', currentRouteName, 'to', routeConfig.name, 'with query:', routeConfig.query)
   
   // 使用路由名称进行导航（更可靠）
   router.push(routeConfig).then(() => {
@@ -111,7 +124,7 @@ const navigateToRoute = (key) => {
   }).catch(err => {
     console.error('✗ Navigation error:', err)
     // 导航失败时恢复选中状态（创建新数组）
-    const currentKey = getRouteKey(route?.name)
+    const currentKey = getRouteKey(route?.name, route?.query)
     selectedKeys.value = [currentKey]
   })
 }
@@ -128,7 +141,7 @@ const handleMenuClick = (e) => {
   console.log('Menu clicked:', key, 'Event:', e)
   
   // 忽略子菜单父项的点击
-  if (!key || key === 'strategy') {
+  if (!key || key === 'strategy' || key === 'stocks') {
     return
   }
   
@@ -137,12 +150,12 @@ const handleMenuClick = (e) => {
 }
 
 // 监听路由变化，更新选中的菜单项
-watch(() => route?.name, (newName) => {
+watch(() => [route?.name, route?.query], ([newName, newQuery]) => {
   if (newName) {
-    const key = getRouteKey(newName)
+    const key = getRouteKey(newName, newQuery)
     // 创建新的数组，确保是可扩展的
     selectedKeys.value = [key]
-    console.log('Route changed to:', newName, 'Menu key:', key)
+    console.log('Route changed to:', newName, 'Query:', newQuery, 'Menu key:', key)
   }
 }, { immediate: true })
 </script>
@@ -151,22 +164,25 @@ watch(() => route?.name, (newName) => {
 .header {
   background: #fff;
   border-bottom: 1px solid #f0f0f0;
-  padding: 0 32px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   position: sticky;
   top: 0;
-  z-index: 1000;
+  z-index: 1001;
+  height: 48px;
+  line-height: 48px;
+  pointer-events: auto;
 }
 
 .logo {
-  margin-right: 48px;
+  margin-right: 32px;
 }
 
 .logo-text {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   color: #1890ff;
   letter-spacing: 0.5px;
@@ -175,7 +191,7 @@ watch(() => route?.name, (newName) => {
 .nav-menu {
   flex: 1;
   border-bottom: none !important;
-  line-height: 64px;
+  line-height: 48px;
 }
 
 /* 确保菜单项可点击 */
@@ -183,6 +199,9 @@ watch(() => route?.name, (newName) => {
 .nav-menu :deep(.ant-menu-submenu-title) {
   cursor: pointer;
   user-select: none;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1002;
 }
 
 .nav-menu :deep(.ant-menu-item:hover),
@@ -190,17 +209,27 @@ watch(() => route?.name, (newName) => {
   color: #1890ff;
 }
 
+/* 确保菜单始终可点击，不受其他元素影响 */
+.nav-menu {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1002;
+}
+
 .content {
-  padding: 32px 24px;
+  padding: 16px 0;
   background: #f0f2f5;
-  min-height: calc(100vh - 64px - 80px);
+  min-height: calc(100vh - 48px - 60px);
+  width: 100%;
+  max-width: 100%;
 }
 
 .footer {
   background: #fff;
   border-top: 1px solid #f0f0f0;
-  padding: 24px;
+  padding: 12px;
   text-align: center;
+  height: 60px;
 }
 
 .footer-content {

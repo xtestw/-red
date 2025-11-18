@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Layout from '../components/Layout.vue'
 import Dashboard from '../views/Dashboard.vue'
 import StockList from '../views/StockList.vue'
+import IPOStocks from '../views/IPOStocks.vue'
 import GlobalMarket from '../views/GlobalMarket.vue'
 import BigPlayerTracking from '../views/BigPlayerTracking.vue'
 import StrategySelection from '../views/StrategySelection.vue'
@@ -20,6 +21,11 @@ const routes = [
         path: 'stocks',
         name: 'StockList',
         component: StockList
+      },
+      {
+        path: 'ipo',
+        name: 'IPOStocks',
+        component: IPOStocks
       },
       {
         path: 'strategy/selection',

@@ -1,7 +1,7 @@
 <template>
-  <div>
-    <a-spin :spinning="loading">
-      <div ref="chartRef" style="width: 100%; height: 450px;"></div>
+  <div class="kline-chart-container">
+    <a-spin :spinning="loading" tip="加载中...">
+      <div ref="chartRef" class="chart-wrapper"></div>
     </a-spin>
   </div>
 </template>
@@ -29,47 +29,82 @@ const loadData = async () => {
   
   loading.value = true
   try {
-    const result = await stockAPI.getKlineData(props.tsCode, props.type, { limit: 100 })
+    // 根据类型设置不同的limit
+    const limit = props.type === 'daily' ? 100 : props.type === 'weekly' ? 200 : 300
+    const result = await stockAPI.getKlineData(props.tsCode, props.type, { limit })
     
-    if (result.code === 0 && result.data.length > 0) {
+    if (result.code === 0 && result.data && result.data.length > 0) {
       const data = result.data.reverse()
       
-      const dates = data.map(d => d.trade_date)
+      const dates = data.map(d => {
+        // 格式化日期显示
+        const dateStr = String(d.trade_date)
+        if (dateStr.length === 8) {
+          return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`
+        }
+        return dateStr
+      })
       const opens = data.map(d => d.open)
       const highs = data.map(d => d.high)
       const lows = data.map(d => d.low)
       const closes = data.map(d => d.close)
-      const volumes = data.map(d => d.vol)
+      const volumes = data.map(d => d.vol || 0)
       
-      const klineData = data.map(d => [d.open, d.close, d.low, d.high])
+      const klineData = data.map(d => [
+        parseFloat(d.open) || 0,
+        parseFloat(d.close) || 0,
+        parseFloat(d.low) || 0,
+        parseFloat(d.high) || 0
+      ])
+      
+      const chartTitle = props.type === 'daily' ? '日线图' : props.type === 'weekly' ? '周线图' : '月线图'
       
       const option = {
         title: {
-          text: props.type === 'daily' ? '日线图' : props.type === 'weekly' ? '周线图' : '月线图',
-          left: 'center'
+          text: chartTitle,
+          left: 'center',
+          textStyle: {
+            fontSize: 16,
+            fontWeight: 'bold'
+          }
         },
         tooltip: {
           trigger: 'axis',
           axisPointer: {
             type: 'cross'
+          },
+          formatter: function(params) {
+            let result = params[0].axisValue + '<br/>'
+            params.forEach(function(item) {
+              if (item.seriesName === 'K线') {
+                result += item.marker + item.seriesName + '<br/>'
+                result += '开盘: ' + item.value[0] + '<br/>'
+                result += '收盘: ' + item.value[1] + '<br/>'
+                result += '最低: ' + item.value[2] + '<br/>'
+                result += '最高: ' + item.value[3] + '<br/>'
+              } else {
+                result += item.marker + item.seriesName + ': ' + item.value + '<br/>'
+              }
+            })
+            return result
           }
         },
         legend: {
           data: ['K线', '成交量'],
-          top: 30
+          top: 35
         },
         grid: [
           {
             left: '10%',
             right: '8%',
-            top: '15%',
+            top: '18%',
             height: '60%'
           },
           {
             left: '10%',
             right: '8%',
-            top: '80%',
-            height: '15%'
+            top: '82%',
+            height: '12%'
           }
         ],
         xAxis: [
@@ -117,16 +152,20 @@ const loadData = async () => {
           {
             type: 'inside',
             xAxisIndex: [0, 1],
-            start: 50,
+            start: props.type === 'daily' ? 50 : props.type === 'weekly' ? 30 : 20,
             end: 100
           },
           {
             show: true,
             xAxisIndex: [0, 1],
             type: 'slider',
-            top: '95%',
-            start: 50,
-            end: 100
+            top: '96%',
+            height: 20,
+            start: props.type === 'daily' ? 50 : props.type === 'weekly' ? 30 : 20,
+            end: 100,
+            handleStyle: {
+              color: '#1890ff'
+            }
           }
         ],
         series: [
@@ -160,10 +199,18 @@ const loadData = async () => {
       
       if (chart.value) {
         chart.value.setOption(option, true)
+      } else {
+        // 如果图表未初始化，先初始化
+        initChart()
+        if (chart.value) {
+          chart.value.setOption(option, true)
+        }
       }
+    } else {
+      console.warn(`未获取到${chartTitle}数据`)
     }
   } catch (error) {
-    console.error('加载K线数据失败:', error)
+    console.error(`加载${props.type}K线数据失败:`, error)
   } finally {
     loading.value = false
   }
@@ -201,6 +248,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.kline-chart-container {
+  width: 100%;
+  min-height: 500px;
+}
+
+.chart-wrapper {
+  width: 100%;
+  height: 500px;
+  min-height: 500px;
+}
+
+@media (max-width: 768px) {
+  .chart-wrapper {
+    height: 400px;
+    min-height: 400px;
+  }
+}
 </style>
 
 

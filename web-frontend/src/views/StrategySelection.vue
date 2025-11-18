@@ -1,40 +1,46 @@
 <template>
   <div class="page-container">
-    <!-- 头部 -->
-    <a-card class="header-card" :bordered="false">
-      <template #title>
-        <h1 style="margin: 0; font-size: 28px; font-weight: 700;">
-          📊 策略选股
-        </h1>
-      </template>
-      <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.8;">
-        基于多种策略的智能选股系统 | 专业 · 高效 · 智能
-      </p>
-    </a-card>
-
     <!-- 策略Tab区域 -->
-    <a-card class="strategy-card" :bordered="false" style="margin-top: 24px;">
+    <a-card class="strategy-card" :bordered="false">
       <a-tabs v-model:activeKey="activeStrategy" @change="handleStrategyChange">
         <a-tab-pane key="放量策略" tab="放量策略选股">
           <div class="strategy-content">
-            <!-- 日期选择 -->
-            <div class="date-selector">
-              <a-space>
+            <!-- 筛选区域 -->
+            <div class="filter-selector">
+              <a-space wrap size="small">
                 <span>选股日期：</span>
                 <a-select
                   v-model:value="selectedDate"
-                  style="width: 200px"
+                  style="width: 180px"
                   placeholder="选择日期"
                   :loading="datesLoading"
                   @change="handleDateChange"
+                  allowClear
+                  size="small"
                 >
                   <a-select-option v-for="date in dates" :key="date" :value="date">
                     {{ date }}
                   </a-select-option>
                 </a-select>
-                <a-button type="primary" @click="loadSelections" :loading="loading">
+                <span>行业筛选：</span>
+                <a-select
+                  v-model:value="selectedIndustry"
+                  style="width: 180px"
+                  placeholder="选择行业"
+                  allowClear
+                  @change="handleFilterChange"
+                  size="small"
+                >
+                  <a-select-option v-for="industry in industries" :key="industry" :value="industry">
+                    {{ industry }}
+                  </a-select-option>
+                </a-select>
+                <a-button type="primary" @click="loadSelections" :loading="loading" size="small">
                   <template #icon><ReloadOutlined /></template>
                   刷新
+                </a-button>
+                <a-button @click="resetFilters" size="small">
+                  重置筛选
                 </a-button>
               </a-space>
             </div>
@@ -46,7 +52,8 @@
               :loading="loading"
               :pagination="paginationConfig"
               @change="handleTableChange"
-              :scroll="{ x: 1200 }"
+              :scroll="{ x: 1200, y: tableScrollHeight.value }"
+              size="small"
             >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'pct_chg'">
@@ -65,6 +72,11 @@
                 </template>
                 <template v-else-if="column.key === 'score'">
                   <span class="number">{{ record.score ? record.score.toFixed(2) : '-' }}</span>
+                </template>
+                <template v-else-if="column.key === 'reason'">
+                  <a-tooltip :title="record.reason" placement="topLeft">
+                    <span class="reason-text">{{ record.reason || '-' }}</span>
+                  </a-tooltip>
                 </template>
                 <template v-else-if="column.key === 'action'">
                   <a-space>
@@ -101,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   ReloadOutlined,
@@ -116,68 +128,129 @@ import { useStockStore } from '../stores/stock'
 const store = useStockStore()
 const activeStrategy = ref('放量策略')
 const selectedDate = ref('')
+const selectedIndustry = ref('')
 const dates = ref([])
 const datesLoading = ref(false)
 const selections = ref([])
 const loading = ref(false)
 const detailVisible = ref(false)
 const currentStockCode = ref('')
+const industries = ref([])
 const pagination = ref({
   current: 1,
-  pageSize: 50,
+  pageSize: 100,
   total: 0
 })
+const tableSorter = ref({})
+const tableScrollHeight = ref(600) // 默认高度
 
-// 表格列定义
-const columns = [
+// 计算表格滚动高度（窗口高度减去其他元素高度）
+const calculateTableHeight = () => {
+  // 窗口高度 - 顶部导航栏(约64px) - 筛选区域(约50px) - Tab区域(约46px) - 分页器(约60px) - 边距(约40px)
+  const height = window.innerHeight - 260
+  tableScrollHeight.value = Math.max(400, height) // 最小高度400px
+}
+
+// 表格列定义（使用函数返回，以便动态更新 filters）
+const getColumns = () => [
   {
     title: '股票代码',
     dataIndex: 'symbol',
     key: 'symbol',
     width: 120,
-    fixed: 'left'
+    fixed: 'left',
+    sorter: (a, b) => {
+      if (!a.symbol || !b.symbol) return 0
+      return a.symbol.localeCompare(b.symbol)
+    }
   },
   {
     title: '股票名称',
     dataIndex: 'name',
     key: 'name',
-    width: 150
+    width: 150,
+    sorter: (a, b) => {
+      if (!a.name || !b.name) return 0
+      return a.name.localeCompare(b.name)
+    }
   },
   {
     title: '行业',
     dataIndex: 'industry',
     key: 'industry',
-    width: 150
+    width: 150,
+    filters: [], // 将在 computed 中动态更新
+    onFilter: (value, record) => record.industry === value,
+    sorter: (a, b) => {
+      if (!a.industry || !b.industry) return 0
+      return a.industry.localeCompare(b.industry)
+    }
+  },
+  {
+    title: '选股日期',
+    dataIndex: 'trade_date',
+    key: 'trade_date',
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.trade_date || !b.trade_date) return 0
+      return a.trade_date.localeCompare(b.trade_date)
+    }
   },
   {
     title: '收盘价',
     key: 'close',
     width: 100,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.close || 0
+      const bVal = b.close || 0
+      return aVal - bVal
+    }
   },
   {
     title: '涨跌幅',
     key: 'pct_chg',
     width: 100,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pct_chg || 0
+      const bVal = b.pct_chg || 0
+      return aVal - bVal
+    }
   },
   {
     title: '成交量（手）',
     key: 'vol',
     width: 120,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.vol || 0
+      const bVal = b.vol || 0
+      return aVal - bVal
+    }
   },
   {
     title: '成交额（千元）',
     key: 'amount',
     width: 120,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.amount || 0
+      const bVal = b.amount || 0
+      return aVal - bVal
+    }
   },
   {
     title: '策略评分',
     key: 'score',
     width: 100,
-    align: 'right'
+    align: 'right',
+    defaultSortOrder: 'descend',
+    sorter: (a, b) => {
+      const aVal = a.score || 0
+      const bVal = b.score || 0
+      return aVal - bVal
+    }
   },
   {
     title: '选股理由',
@@ -194,6 +267,17 @@ const columns = [
   }
 ]
 
+// 使用 computed 包装，以便响应式更新
+const columns = computed(() => {
+  const cols = getColumns()
+  // 更新行业筛选器
+  const industryCol = cols.find(col => col.key === 'industry')
+  if (industryCol) {
+    industryCol.filters = industries.value.map(ind => ({ text: ind, value: ind }))
+  }
+  return cols
+})
+
 // 分页配置
 const paginationConfig = computed(() => ({
   current: pagination.value.current,
@@ -201,7 +285,17 @@ const paginationConfig = computed(() => ({
   total: pagination.value.total,
   showSizeChanger: true,
   showQuickJumper: true,
-  showTotal: (total) => `共 ${total} 条记录`
+  showTotal: (total) => `共 ${total} 条记录`,
+  onChange: (page, pageSize) => {
+    pagination.value.current = page
+    pagination.value.pageSize = pageSize
+    loadSelections(page)
+  },
+  onShowSizeChange: (current, size) => {
+    pagination.value.current = 1
+    pagination.value.pageSize = size
+    loadSelections(1)
+  }
 }))
 
 // 方法
@@ -229,6 +323,19 @@ const handleStrategyChange = (key) => {
 }
 
 const handleDateChange = () => {
+  pagination.value.current = 1
+  loadSelections()
+}
+
+const handleFilterChange = () => {
+  pagination.value.current = 1
+  loadSelections()
+}
+
+const resetFilters = () => {
+  selectedDate.value = ''
+  selectedIndustry.value = ''
+  pagination.value.current = 1
   loadSelections()
 }
 
@@ -263,11 +370,27 @@ const loadSelections = async (page = 1) => {
     
     const response = await strategyAPI.getSelections(params)
     if (response.code === 0) {
-      selections.value = response.data.selections || []
+      let data = response.data.selections || []
+      
+      // 应用行业筛选
+      if (selectedIndustry.value) {
+        data = data.filter(item => item.industry === selectedIndustry.value)
+      }
+      
+      // 提取行业列表
+      const industrySet = new Set()
+      data.forEach(item => {
+        if (item.industry) {
+          industrySet.add(item.industry)
+        }
+      })
+      industries.value = Array.from(industrySet).sort()
+      
+      selections.value = data
       pagination.value = {
         current: response.data.page || 1,
-        pageSize: response.data.per_page || 50,
-        total: response.data.total || 0
+        pageSize: response.data.per_page || 100,
+        total: selectedIndustry.value ? data.length : response.data.total || 0
       }
     } else {
       message.error(response.message || '加载选股结果失败')
@@ -280,8 +403,28 @@ const loadSelections = async (page = 1) => {
   }
 }
 
-const handleTableChange = (pag) => {
-  loadSelections(pag.current)
+const handleTableChange = (pag, filters, sorter) => {
+  // 处理分页
+  if (pag && typeof pag === 'object' && 'current' in pag) {
+    pagination.value.current = pag.current
+    pagination.value.pageSize = pag.pageSize || pagination.value.pageSize
+  }
+  
+  // 保存排序信息（前端排序，不需要重新请求）
+  if (sorter && sorter.columnKey) {
+    tableSorter.value = {
+      field: sorter.columnKey,
+      order: sorter.order
+    }
+  }
+  
+  // 如果有筛选，应用筛选
+  if (filters && filters.industry) {
+    selectedIndustry.value = filters.industry[0] || ''
+  }
+  
+  // 重新加载数据
+  loadSelections(pagination.value.current)
 }
 
 const showStockDetail = (tsCode) => {
@@ -306,24 +449,83 @@ const toggleFavorite = async (tsCode) => {
   }
 }
 
+// 窗口大小变化时更新表格高度
+const updateTableHeight = () => {
+  calculateTableHeight()
+}
+
 // 初始化
 onMounted(async () => {
   await store.loadFavorites()
   await loadDates()
   await loadSelections()
+  
+  // 计算初始表格高度
+  calculateTableHeight()
+  
+  // 监听窗口大小变化
+  window.addEventListener('resize', updateTableHeight)
+})
+
+// 组件卸载时移除监听
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateTableHeight)
 })
 </script>
 
 <style scoped>
 .strategy-content {
-  padding: 16px 0;
+  padding: 8px 0;
 }
 
-.date-selector {
-  margin-bottom: 16px;
-  padding: 16px;
+.filter-selector {
+  margin-bottom: 8px;
+  padding: 8px 12px;
   background: #fafafa;
   border-radius: 4px;
+}
+
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.strategy-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.strategy-card :deep(.ant-card-body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.strategy-card :deep(.ant-tabs) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.strategy-card :deep(.ant-tabs-content-holder) {
+  flex: 1;
+  overflow: hidden;
+}
+
+.strategy-card :deep(.ant-tabs-content) {
+  height: 100%;
+}
+
+.strategy-card :deep(.ant-tabs-tabpane) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .number {
@@ -347,6 +549,15 @@ onMounted(async () => {
 
 .favorited:hover {
   color: #ffc53d !important;
+}
+
+.reason-text {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 </style>
 

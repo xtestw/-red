@@ -20,6 +20,14 @@ from database import (
     StockMoneyflow, StockIndicator, StockIPO
 )
 
+
+class TusharePermissionError(Exception):
+    """Tushare API 权限不足异常"""
+    def __init__(self, api_name, error_msg):
+        self.api_name = api_name
+        self.error_msg = error_msg
+        super().__init__(f"接口 {api_name} 权限不足: {error_msg}")
+
 # 配置日志
 # 获取项目根目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,9 +99,28 @@ def call_tushare_api(api_func, api_name, **kwargs):
         
     except Exception as e:
         elapsed_time = time.time() - start_time
-        logger.error(f"[Tushare API] 调用失败: {api_name} | 错误: {str(e)} | 耗时: {elapsed_time:.2f}秒")
-        logger.error(f"[Tushare API] 请求参数: {params_str}")
-        raise
+        error_msg = str(e)
+        error_type = type(e).__name__
+        
+        # 检查是否是权限错误（Tushare 可能抛出包含 '没有接口访问权限' 或 '权限' 的异常）
+        is_permission_error = (
+            '没有接口访问权限' in error_msg or 
+            '权限' in error_msg or
+            '接口访问权限' in error_msg or
+            'permission' in error_msg.lower() or
+            'access denied' in error_msg.lower()
+        )
+        
+        if is_permission_error:
+            logger.warning(f"[Tushare API] 权限不足: {api_name} | 错误类型: {error_type} | 错误: {error_msg} | 耗时: {elapsed_time:.2f}秒")
+            logger.warning(f"[Tushare API] 请求参数: {params_str}")
+            logger.warning(f"[Tushare API] 提示: 该接口需要更高权限，请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+            # 对于权限错误，抛出异常以停止任务
+            raise TusharePermissionError(api_name, error_msg)
+        else:
+            logger.error(f"[Tushare API] 调用失败: {api_name} | 错误类型: {error_type} | 错误: {error_msg} | 耗时: {elapsed_time:.2f}秒")
+            logger.error(f"[Tushare API] 请求参数: {params_str}")
+            raise
 
 
 def fetch_stock_basic():
@@ -149,6 +176,15 @@ def fetch_stock_basic():
             raise
         finally:
             session.close()
+    except TusharePermissionError as e:
+        # 权限不足，停止整个任务
+        logger.error(f"接口权限不足，停止股票基本信息获取任务: {e.api_name}")
+        logger.error(f"错误信息: {e.error_msg}")
+        logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+        print(f"❌ 接口权限不足，停止股票基本信息获取任务: {e.api_name}")
+        print(f"错误信息: {e.error_msg}")
+        print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+        return  # 直接返回，停止任务
     except Exception as e:
         logger.error(f"获取股票基本信息失败: {e}", exc_info=True)
         print(f"获取股票基本信息失败: {e}")
@@ -298,7 +334,17 @@ def fetch_stock_company(ts_code=None, exchange=None):
                 # 控制请求频率（stock_company接口限速较宽松，但也要控制）
                 time.sleep(0.5)
                 
+            except TusharePermissionError as e:
+                # 权限不足，停止整个任务
+                logger.error(f"接口权限不足，停止公司信息获取任务: {e.api_name}")
+                logger.error(f"错误信息: {e.error_msg}")
+                logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                print(f"❌ 接口权限不足，停止公司信息获取任务: {e.api_name}")
+                print(f"错误信息: {e.error_msg}")
+                print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                return  # 直接返回，停止任务
             except Exception as e:
+                logger.error(f"获取 {exch} 交易所公司信息失败: {e}", exc_info=True)
                 print(f"获取 {exch} 交易所公司信息失败: {e}")
                 session.rollback()
                 continue
@@ -553,7 +599,17 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                     # 控制请求频率
                     time.sleep(REQUEST_INTERVAL)
                         
+                except TusharePermissionError as e:
+                    # 权限不足，停止整个任务
+                    logger.error(f"接口权限不足，停止日线数据获取任务: {e.api_name}")
+                    logger.error(f"错误信息: {e.error_msg}")
+                    logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                    print(f"❌ 接口权限不足，停止日线数据获取任务: {e.api_name}")
+                    print(f"错误信息: {e.error_msg}")
+                    print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                    return  # 直接返回，停止任务
                 except Exception as e:
+                    logger.error(f"获取 {code} 日线数据失败: {e}", exc_info=True)
                     print(f"获取 {code} 日线数据失败: {e}")
                     session.rollback()
                     # 即使失败也要等待，避免过快重试
@@ -574,13 +630,20 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
 
 
 def fetch_stock_weekly(ts_code=None, start_date=None, end_date=None):
-    """获取股票周线数据"""
+    """
+    获取股票周线数据
+    限速要求：每分钟120次
+    """
     if not end_date:
         end_date = datetime.now().strftime('%Y%m%d')
     if not start_date:
         start_date = (datetime.now() - timedelta(days=730)).strftime('%Y%m%d')
     
+    logger.info("=" * 60)
+    logger.info(f"开始获取周线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
+    logger.info(f"限速策略: 每分钟最多120次请求")
     print(f"开始获取周线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
+    print(f"限速策略: 每分钟最多120次请求")
     
     session = get_session()
     try:
@@ -590,9 +653,40 @@ def fetch_stock_weekly(ts_code=None, start_date=None, end_date=None):
             stocks = session.query(StockBasic).all()
             codes = [stock.ts_code for stock in stocks]
         
+        # 限速控制：每分钟120次 = 每次请求间隔约 60/120 = 0.5秒
+        # 为了安全，设置为0.55秒，每分钟约109次
+        REQUEST_INTERVAL = 0.55  # 秒
+        MAX_REQUESTS_PER_MINUTE = 120
+        
+        # 请求计数器（用于每分钟重置）
+        request_count = 0
+        minute_start_time = time.time()
+        
         total_count = 0
+        total_requests = 0
+        
         for i, code in enumerate(codes):
             try:
+                # 检查是否需要等待（每分钟120次限制）
+                current_time = time.time()
+                elapsed = current_time - minute_start_time
+                
+                if elapsed >= 60:
+                    # 重置计数器
+                    request_count = 0
+                    minute_start_time = current_time
+                    logger.info(f"限速窗口重置，已处理 {i}/{len(codes)} 个股票")
+                    print(f"限速窗口重置，已处理 {i}/{len(codes)} 个股票")
+                elif request_count >= MAX_REQUESTS_PER_MINUTE:
+                    # 等待到下一分钟
+                    wait_time = 60 - elapsed + 1
+                    logger.warning(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                    print(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                    time.sleep(wait_time)
+                    request_count = 0
+                    minute_start_time = time.time()
+                    logger.info("限速等待完成，继续请求")
+                
                 pro = get_pro_api()
                 df = call_tushare_api(
                     pro.weekly,
@@ -603,7 +697,12 @@ def fetch_stock_weekly(ts_code=None, start_date=None, end_date=None):
                     fields='ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount'
                 )
                 
+                request_count += 1
+                total_requests += 1
+                
                 if df.empty:
+                    # 即使没有数据，也要等待间隔
+                    time.sleep(REQUEST_INTERVAL)
                     continue
                 
                 for _, row in df.iterrows():
@@ -632,30 +731,58 @@ def fetch_stock_weekly(ts_code=None, start_date=None, end_date=None):
                 
                 session.commit()
                 
-                if (i + 1) % 200 == 0:
-                    print(f"已处理 {i + 1}/{len(codes)} 个股票，暂停60秒...")
-                    time.sleep(60)
-                else:
-                    time.sleep(0.2)
+                if (i + 1) % 100 == 0:
+                    logger.info(f"已处理 {i + 1}/{len(codes)} 个股票，新增 {total_count} 条数据")
+                    print(f"已处理 {i + 1}/{len(codes)} 个股票，新增 {total_count} 条数据")
+                
+                # 控制请求频率
+                time.sleep(REQUEST_INTERVAL)
                     
+            except TusharePermissionError as e:
+                # 权限不足，停止整个任务
+                logger.error(f"接口权限不足，停止周线数据获取任务: {e.api_name}")
+                logger.error(f"错误信息: {e.error_msg}")
+                logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                print(f"❌ 接口权限不足，停止周线数据获取任务: {e.api_name}")
+                print(f"错误信息: {e.error_msg}")
+                print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                return  # 直接返回，停止任务
             except Exception as e:
+                logger.error(f"获取 {code} 周线数据失败: {e}", exc_info=True)
                 print(f"获取 {code} 周线数据失败: {e}")
                 session.rollback()
+                # 即使失败也要等待，避免过快重试
+                time.sleep(REQUEST_INTERVAL)
                 continue
         
-        print(f"成功获取 {total_count} 条周线数据")
+        logger.info("=" * 60)
+        logger.info(f"周线数据获取完成:")
+        logger.info(f"  总请求次数: {total_requests}")
+        logger.info(f"  新增数据条数: {total_count}")
+        print(f"=" * 50)
+        print(f"周线数据获取完成:")
+        print(f"  总请求次数: {total_requests}")
+        print(f"  新增数据条数: {total_count}")
+        print(f"=" * 50)
     finally:
         session.close()
 
 
 def fetch_stock_monthly(ts_code=None, start_date=None, end_date=None):
-    """获取股票月线数据"""
+    """
+    获取股票月线数据
+    限速要求：每分钟120次
+    """
     if not end_date:
         end_date = datetime.now().strftime('%Y%m%d')
     if not start_date:
         start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y%m%d')
     
+    logger.info("=" * 60)
+    logger.info(f"开始获取月线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
+    logger.info(f"限速策略: 每分钟最多120次请求")
     print(f"开始获取月线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
+    print(f"限速策略: 每分钟最多120次请求")
     
     session = get_session()
     try:
@@ -665,9 +792,40 @@ def fetch_stock_monthly(ts_code=None, start_date=None, end_date=None):
             stocks = session.query(StockBasic).all()
             codes = [stock.ts_code for stock in stocks]
         
+        # 限速控制：每分钟120次 = 每次请求间隔约 60/120 = 0.5秒
+        # 为了安全，设置为0.55秒，每分钟约109次
+        REQUEST_INTERVAL = 0.55  # 秒
+        MAX_REQUESTS_PER_MINUTE = 120
+        
+        # 请求计数器（用于每分钟重置）
+        request_count = 0
+        minute_start_time = time.time()
+        
         total_count = 0
+        total_requests = 0
+        
         for i, code in enumerate(codes):
             try:
+                # 检查是否需要等待（每分钟120次限制）
+                current_time = time.time()
+                elapsed = current_time - minute_start_time
+                
+                if elapsed >= 60:
+                    # 重置计数器
+                    request_count = 0
+                    minute_start_time = current_time
+                    logger.info(f"限速窗口重置，已处理 {i}/{len(codes)} 个股票")
+                    print(f"限速窗口重置，已处理 {i}/{len(codes)} 个股票")
+                elif request_count >= MAX_REQUESTS_PER_MINUTE:
+                    # 等待到下一分钟
+                    wait_time = 60 - elapsed + 1
+                    logger.warning(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                    print(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                    time.sleep(wait_time)
+                    request_count = 0
+                    minute_start_time = time.time()
+                    logger.info("限速等待完成，继续请求")
+                
                 pro = get_pro_api()
                 df = call_tushare_api(
                     pro.monthly,
@@ -678,7 +836,12 @@ def fetch_stock_monthly(ts_code=None, start_date=None, end_date=None):
                     fields='ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount'
                 )
                 
+                request_count += 1
+                total_requests += 1
+                
                 if df.empty:
+                    # 即使没有数据，也要等待间隔
+                    time.sleep(REQUEST_INTERVAL)
                     continue
                 
                 for _, row in df.iterrows():
@@ -707,18 +870,39 @@ def fetch_stock_monthly(ts_code=None, start_date=None, end_date=None):
                 
                 session.commit()
                 
-                if (i + 1) % 200 == 0:
-                    print(f"已处理 {i + 1}/{len(codes)} 个股票，暂停60秒...")
-                    time.sleep(60)
-                else:
-                    time.sleep(0.2)
+                if (i + 1) % 100 == 0:
+                    logger.info(f"已处理 {i + 1}/{len(codes)} 个股票，新增 {total_count} 条数据")
+                    print(f"已处理 {i + 1}/{len(codes)} 个股票，新增 {total_count} 条数据")
+                
+                # 控制请求频率
+                time.sleep(REQUEST_INTERVAL)
                     
+            except TusharePermissionError as e:
+                # 权限不足，停止整个任务
+                logger.error(f"接口权限不足，停止月线数据获取任务: {e.api_name}")
+                logger.error(f"错误信息: {e.error_msg}")
+                logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                print(f"❌ 接口权限不足，停止月线数据获取任务: {e.api_name}")
+                print(f"错误信息: {e.error_msg}")
+                print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                return  # 直接返回，停止任务
             except Exception as e:
+                logger.error(f"获取 {code} 月线数据失败: {e}", exc_info=True)
                 print(f"获取 {code} 月线数据失败: {e}")
                 session.rollback()
+                # 即使失败也要等待，避免过快重试
+                time.sleep(REQUEST_INTERVAL)
                 continue
         
-        print(f"成功获取 {total_count} 条月线数据")
+        logger.info("=" * 60)
+        logger.info(f"月线数据获取完成:")
+        logger.info(f"  总请求次数: {total_requests}")
+        logger.info(f"  新增数据条数: {total_count}")
+        print(f"=" * 50)
+        print(f"月线数据获取完成:")
+        print(f"  总请求次数: {total_requests}")
+        print(f"  新增数据条数: {total_count}")
+        print(f"=" * 50)
     finally:
         session.close()
 
@@ -787,7 +971,17 @@ def fetch_stock_moneyflow(ts_code=None, start_date=None, end_date=None):
                 else:
                     time.sleep(0.2)
                     
+            except TusharePermissionError as e:
+                # 权限不足，停止整个任务
+                logger.error(f"接口权限不足，停止资金流向数据获取任务: {e.api_name}")
+                logger.error(f"错误信息: {e.error_msg}")
+                logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                print(f"❌ 接口权限不足，停止资金流向数据获取任务: {e.api_name}")
+                print(f"错误信息: {e.error_msg}")
+                print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                return  # 直接返回，停止任务
             except Exception as e:
+                logger.error(f"获取 {code} 资金流向数据失败: {e}", exc_info=True)
                 print(f"获取 {code} 资金流向数据失败: {e}")
                 session.rollback()
                 continue
@@ -804,6 +998,7 @@ def fetch_stock_indicator(ts_code=None, start_date=None, end_date=None):
     if not start_date:
         start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
     
+    logger.info(f"开始获取股票指标数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
     print(f"开始获取股票指标数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
     
     session = get_session()
@@ -814,7 +1009,10 @@ def fetch_stock_indicator(ts_code=None, start_date=None, end_date=None):
             stocks = session.query(StockBasic).all()
             codes = [stock.ts_code for stock in stocks]
         
+        logger.info(f"准备获取 {len(codes)} 个股票的指标数据")
         total_count = 0
+        updated_count = 0
+        
         for i, code in enumerate(codes):
             try:
                 pro = get_pro_api()
@@ -827,8 +1025,11 @@ def fetch_stock_indicator(ts_code=None, start_date=None, end_date=None):
                     fields='ts_code,trade_date,total_mv,circ_mv,pe,pb,ps,dv_ttm'
                 )
                 
-                if df.empty:
+                if df is None or df.empty:
+                    logger.debug(f"股票 {code} 无指标数据")
                     continue
+                
+                logger.info(f"股票 {code} 获取到 {len(df)} 条指标数据")
                 
                 for _, row in df.iterrows():
                     indicator = session.query(StockIndicator).filter_by(
@@ -836,35 +1037,72 @@ def fetch_stock_indicator(ts_code=None, start_date=None, end_date=None):
                         trade_date=row['trade_date']
                     ).first()
                     
+                    # 处理NaN值，转换为None
+                    def safe_float(value):
+                        if pd.isna(value) or value is None:
+                            return None
+                        try:
+                            return float(value)
+                        except (ValueError, TypeError):
+                            return None
+                    
+                    total_mv = safe_float(row.get('total_mv'))
+                    circ_mv = safe_float(row.get('circ_mv'))
+                    pe = safe_float(row.get('pe'))
+                    pb = safe_float(row.get('pb'))
+                    ps = safe_float(row.get('ps'))
+                    dv_ttm = safe_float(row.get('dv_ttm'))
+                    
                     if not indicator:
                         indicator = StockIndicator(
                             ts_code=row['ts_code'],
                             trade_date=row['trade_date'],
-                            total_mv=row.get('total_mv'),
-                            circ_mv=row.get('circ_mv'),
-                            pe=row.get('pe'),
-                            pb=row.get('pb'),
-                            ps=row.get('ps'),
-                            dv_ttm=row.get('dv_ttm'),
+                            total_mv=total_mv,
+                            circ_mv=circ_mv,
+                            pe=pe,
+                            pb=pb,
+                            ps=ps,
+                            dv_ttm=dv_ttm,
                             created_at=datetime.now()
                         )
                         session.add(indicator)
                         total_count += 1
+                    else:
+                        # 更新已有数据
+                        indicator.total_mv = total_mv
+                        indicator.circ_mv = circ_mv
+                        indicator.pe = pe
+                        indicator.pb = pb
+                        indicator.ps = ps
+                        indicator.dv_ttm = dv_ttm
+                        updated_count += 1
                 
                 session.commit()
                 
                 if (i + 1) % 200 == 0:
+                    logger.info(f"已处理 {i + 1}/{len(codes)} 个股票，暂停60秒...")
                     print(f"已处理 {i + 1}/{len(codes)} 个股票，暂停60秒...")
                     time.sleep(60)
                 else:
                     time.sleep(0.2)
                     
+            except TusharePermissionError as e:
+                # 权限不足，停止整个任务
+                logger.error(f"接口权限不足，停止指标数据获取任务: {e.api_name}")
+                logger.error(f"错误信息: {e.error_msg}")
+                logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                print(f"❌ 接口权限不足，停止指标数据获取任务: {e.api_name}")
+                print(f"错误信息: {e.error_msg}")
+                print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                return  # 直接返回，停止任务
             except Exception as e:
+                logger.error(f"获取 {code} 指标数据失败: {e}", exc_info=True)
                 print(f"获取 {code} 指标数据失败: {e}")
                 session.rollback()
                 continue
         
-        print(f"成功获取 {total_count} 条指标数据")
+        logger.info(f"成功获取 {total_count} 条新指标数据，更新 {updated_count} 条已有数据")
+        print(f"成功获取 {total_count} 条新指标数据，更新 {updated_count} 条已有数据")
     finally:
         session.close()
 
@@ -888,11 +1126,13 @@ def fetch_ipo_stocks(start_date=None, end_date=None):
     
     try:
         pro = get_pro_api()
-        logger.info(f"调用Tushare API: new_share(start_date={start_date}, end_date={end_date})")
-        start_time = time.time()
-        df = pro.new_share(start_date=start_date, end_date=end_date)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Tushare API调用完成，耗时: {elapsed_time:.2f}秒，返回 {len(df)} 条数据")
+        # 使用 call_tushare_api 统一处理权限错误
+        df = call_tushare_api(
+            pro.new_share,
+            'new_share',
+            start_date=start_date,
+            end_date=end_date
+        )
         
         if df.empty:
             logger.warning("没有获取到IPO数据")
@@ -951,8 +1191,18 @@ def fetch_ipo_stocks(start_date=None, end_date=None):
             raise
         finally:
             session.close()
+    except TusharePermissionError as e:
+        # 权限不足，停止整个任务
+        logger.error(f"接口权限不足，停止IPO数据获取任务: {e.api_name}")
+        logger.error(f"错误信息: {e.error_msg}")
+        logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+        print(f"❌ 接口权限不足，停止IPO数据获取任务: {e.api_name}")
+        print(f"错误信息: {e.error_msg}")
+        print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+        return  # 直接返回，停止任务
     except Exception as e:
         logger.error(f"获取IPO数据失败: {e}", exc_info=True)
+        print(f"获取IPO数据失败: {e}")
         raise
 
 

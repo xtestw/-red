@@ -11,42 +11,42 @@
             v-model:value="store.stockType"
             style="width: 150px;"
             @change="handleStockTypeChange"
+            placeholder="选择股票类型"
           >
             <a-select-option value="all">所有股票</a-select-option>
-            <a-select-option value="ipo">IPO股票</a-select-option>
+            <a-select-option value="ipo">IPO新股</a-select-option>
           </a-select>
         </div>
       </template>
-      <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.8;">
-        实时股票数据查询与分析平台 | 专业 · 高效 · 智能
-      </p>
     </a-card>
 
     <!-- 筛选区域 -->
-    <a-card class="filter-card" :bordered="false" style="margin-top: 24px;">
+    <a-card class="filter-card" :bordered="false">
       <template #title>
         <span>🔍 股票筛选</span>
       </template>
       
       <!-- 所有股票筛选 -->
-      <a-form v-if="store.stockType === 'all'" :model="filters" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :xs="24" :sm="12" :md="8">
+      <a-form v-if="store.stockType === 'all'" :model="store.filters" layout="vertical">
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="关键词搜索（代码/名称）">
               <a-input
-                v-model:value="filters.keyword"
+                v-model:value="store.filters.keyword"
                 placeholder="输入股票代码或名称"
                 allow-clear
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="8">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="行业">
               <a-select
-                v-model:value="filters.industry"
+                v-model:value="store.filters.industry"
                 placeholder="选择行业"
                 allow-clear
                 :loading="industriesLoading"
+                size="small"
               >
                 <a-select-option value="">全部行业</a-select-option>
                 <a-select-option v-for="ind in industries" :key="ind" :value="ind">
@@ -55,13 +55,14 @@
               </a-select>
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="8">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="市场">
               <a-select
-                v-model:value="filters.market"
+                v-model:value="store.filters.market"
                 placeholder="选择市场"
                 allow-clear
                 :loading="marketsLoading"
+                size="small"
               >
                 <a-select-option value="">全部市场</a-select-option>
                 <a-select-option v-for="mkt in markets" :key="mkt" :value="mkt">
@@ -70,46 +71,50 @@
               </a-select>
             </a-form-item>
           </a-col>
-        </a-row>
-        
-        <a-row :gutter="16">
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最小市值（万元）">
               <a-input-number
-                v-model:value="filters.min_market_value"
+                v-model:value="store.filters.min_market_value"
                 placeholder="最小市值"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最大市值（万元）">
               <a-input-number
-                v-model:value="filters.max_market_value"
+                v-model:value="store.filters.max_market_value"
                 placeholder="最大市值"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
+        </a-row>
+        
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最小市盈率">
               <a-input-number
-                v-model:value="filters.min_pe"
+                v-model:value="store.filters.min_pe"
                 placeholder="最小PE"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最大市盈率">
               <a-input-number
-                v-model:value="filters.max_pe"
+                v-model:value="store.filters.max_pe"
                 placeholder="最大PE"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
@@ -117,104 +122,110 @@
       </a-form>
       
       <!-- IPO股票筛选 -->
-      <a-form v-else :model="ipoFilters" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :xs="24" :sm="12" :md="8">
+      <a-form v-else :model="store.ipoFilters" layout="vertical">
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="关键词搜索（代码/名称/申购代码）">
               <a-input
-                v-model:value="ipoFilters.keyword"
+                v-model:value="store.ipoFilters.keyword"
                 placeholder="输入股票代码、名称或申购代码"
                 allow-clear
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="8">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="上网发行开始日期">
               <a-date-picker
-                v-model:value="ipoFilters.start_date"
+                v-model:value="store.ipoFilters.start_date"
                 placeholder="选择开始日期"
                 format="YYYY-MM-DD"
                 value-format="YYYYMMDD"
                 style="width: 100%"
                 allow-clear
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="8">
+          <a-col :xs="24" :sm="12" :md="6" :lg="5">
             <a-form-item label="上网发行结束日期">
               <a-date-picker
-                v-model:value="ipoFilters.end_date"
+                v-model:value="store.ipoFilters.end_date"
                 placeholder="选择结束日期"
                 format="YYYY-MM-DD"
                 value-format="YYYYMMDD"
                 style="width: 100%"
                 allow-clear
+                size="small"
               />
             </a-form-item>
           </a-col>
-        </a-row>
-        
-        <a-row :gutter="16">
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最小发行价格">
               <a-input-number
-                v-model:value="ipoFilters.min_price"
+                v-model:value="store.ipoFilters.min_price"
                 placeholder="最小价格"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最大发行价格">
               <a-input-number
-                v-model:value="ipoFilters.max_price"
+                v-model:value="store.ipoFilters.max_price"
                 placeholder="最大价格"
                 :min="0"
                 style="width: 100%"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
-            <a-form-item label="最小市盈率">
-              <a-input-number
-                v-model:value="ipoFilters.min_pe"
-                placeholder="最小PE"
-                :min="0"
-                style="width: 100%"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
-            <a-form-item label="最大市盈率">
-              <a-input-number
-                v-model:value="ipoFilters.max_pe"
-                placeholder="最大PE"
-                :min="0"
-                style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
         </a-row>
         
-        <a-row :gutter="16">
-          <a-col :xs="24" :sm="12" :md="6">
-            <a-form-item label="最小募集资金（亿元）">
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
+            <a-form-item label="最小市盈率">
               <a-input-number
-                v-model:value="ipoFilters.min_funds"
-                placeholder="最小募集资金"
+                v-model:value="store.ipoFilters.min_pe"
+                placeholder="最小PE"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="12" :md="6">
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
+            <a-form-item label="最大市盈率">
+              <a-input-number
+                v-model:value="store.ipoFilters.max_pe"
+                placeholder="最大PE"
+                :min="0"
+                style="width: 100%"
+                size="small"
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
+            <a-form-item label="最小募集资金（亿元）">
+              <a-input-number
+                v-model:value="store.ipoFilters.min_funds"
+                placeholder="最小募集资金"
+                :min="0"
+                style="width: 100%"
+                size="small"
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12" :md="6" :lg="4">
             <a-form-item label="最大募集资金（亿元）">
               <a-input-number
-                v-model:value="ipoFilters.max_funds"
+                v-model:value="store.ipoFilters.max_funds"
                 placeholder="最大募集资金"
                 :min="0"
                 style="width: 100%"
+                size="small"
               />
             </a-form-item>
           </a-col>
@@ -222,25 +233,25 @@
       </a-form>
 
       <!-- 操作按钮 -->
-      <div style="margin-top: 16px;">
+      <div class="filter-actions">
         <a-space>
-          <a-button type="primary" @click="handleSearch" :loading="loading">
+          <a-button type="primary" @click="handleSearch" :loading="store.loading" size="small">
             <template #icon><SearchOutlined /></template>
             搜索
           </a-button>
-          <a-button @click="handleReset">
+          <a-button @click="handleReset" size="small">
             <template #icon><ReloadOutlined /></template>
             重置
           </a-button>
-          <a-button type="default" @click="showFavorites">
+          <a-button type="default" @click="showFavorites" size="small">
             <template #icon><StarOutlined /></template>
             我的收藏
           </a-button>
-          <a-button type="default" @click="showCompare">
+          <a-button type="default" @click="showCompare" size="small">
             <template #icon><BarChartOutlined /></template>
             股票对比
           </a-button>
-          <a-button type="default" @click="showIndustryStats">
+          <a-button type="default" @click="showIndustryStats" size="small">
             <template #icon><PieChartOutlined /></template>
             行业统计
           </a-button>
@@ -249,15 +260,20 @@
     </a-card>
 
     <!-- 股票列表 -->
-    <a-card class="stock-list-card" :bordered="false" style="margin-top: 24px;">
+    <a-card class="stock-list-card" :bordered="false">
       <a-table
         :columns="columns"
-        :data-source="stocks"
-        :loading="loading"
+        :data-source="store.stocks"
+        :loading="{ spinning: store.loading, tip: '加载中...' }"
         :pagination="paginationConfig"
         :row-selection="rowSelection"
         @change="handleTableChange"
-        :scroll="{ x: 1200 }"
+        :scroll="{ x: 1400, y: 'calc(100vh - 280px)' }"
+        row-key="ts_code"
+        :locale="{ emptyText: '暂无数据' }"
+        size="small"
+        :bordered="true"
+        class="compact-table"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'total_mv'">
@@ -268,6 +284,21 @@
           </template>
           <template v-else-if="column.key === 'pb'">
             <span class="number">{{ record.pb ? record.pb.toFixed(2) : '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'ps'">
+            <span class="number">{{ record.ps ? record.ps.toFixed(2) : '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'circ_mv'">
+            <span class="number">{{ record.circ_mv ? formatNumber(record.circ_mv) : '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'list_date'">
+            <span>{{ record.list_date || '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'area'">
+            <span>{{ record.area || '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'ts_code'">
+            <span>{{ record.ts_code || '-' }}</span>
           </template>
           <template v-else-if="column.key === 'price'">
             <span class="number">{{ record.price ? record.price.toFixed(2) : '-' }}</span>
@@ -325,7 +356,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useStockStore } from '../stores/stock'
 import { message } from 'ant-design-vue'
 import {
@@ -341,7 +373,15 @@ import StockCompareModal from '../components/StockCompareModal.vue'
 import IndustryStatsModal from '../components/IndustryStatsModal.vue'
 
 const store = useStockStore()
-const { stocks, loading, pagination, filters, industries, markets, favoriteCodes, stockType, ipoFilters } = store
+const { stocks, loading, pagination, industries, markets, favoriteCodes } = store
+
+// 添加调试：监听 stocks 变化
+watch(() => store.stocks, (newStocks) => {
+  console.log('Stocks数据变化:', newStocks?.length, '条')
+  if (newStocks && newStocks.length > 0) {
+    console.log('第一条股票数据:', newStocks[0])
+  }
+}, { immediate: true, deep: true })
 
 const industriesLoading = ref(false)
 const marketsLoading = ref(false)
@@ -355,52 +395,88 @@ const selectedStockCodes = computed(() => selectedRowKeys.value)
 // 所有股票表格列定义
 const allStockColumns = [
   {
-    title: '股票代码',
+    title: '代码',
     dataIndex: 'symbol',
     key: 'symbol',
-    width: 120,
+    width: 80,
     fixed: 'left'
   },
   {
-    title: '股票名称',
+    title: '名称',
     dataIndex: 'name',
     key: 'name',
-    width: 150
+    width: 100,
+    fixed: 'left'
+  },
+  {
+    title: 'TS代码',
+    dataIndex: 'ts_code',
+    key: 'ts_code',
+    width: 100
+  },
+  {
+    title: '地域',
+    dataIndex: 'area',
+    key: 'area',
+    width: 80
   },
   {
     title: '行业',
     dataIndex: 'industry',
     key: 'industry',
-    width: 150
+    width: 120
   },
   {
     title: '市场',
     dataIndex: 'market',
     key: 'market',
+    width: 70
+  },
+  {
+    title: '上市日期',
+    dataIndex: 'list_date',
+    key: 'list_date',
     width: 100
   },
   {
     title: '总市值（万元）',
+    dataIndex: 'total_mv',
     key: 'total_mv',
-    width: 150,
+    width: 120,
+    align: 'right'
+  },
+  {
+    title: '流通市值（万元）',
+    dataIndex: 'circ_mv',
+    key: 'circ_mv',
+    width: 120,
     align: 'right'
   },
   {
     title: '市盈率',
+    dataIndex: 'pe',
     key: 'pe',
-    width: 100,
+    width: 80,
     align: 'right'
   },
   {
     title: '市净率',
+    dataIndex: 'pb',
     key: 'pb',
-    width: 100,
+    width: 80,
+    align: 'right'
+  },
+  {
+    title: '市销率',
+    dataIndex: 'ps',
+    key: 'ps',
+    width: 80,
     align: 'right'
   },
   {
     title: '操作',
     key: 'action',
-    width: 150,
+    width: 120,
     fixed: 'right'
   }
 ]
@@ -494,7 +570,7 @@ const rowSelection = computed(() => ({
   },
   onSelectAll: (selected) => {
     if (selected) {
-      selectedRowKeys.value = stocks.value.map(s => s.ts_code)
+      selectedRowKeys.value = store.stocks.map(s => s.ts_code)
     } else {
       selectedRowKeys.value = []
     }
@@ -503,12 +579,14 @@ const rowSelection = computed(() => ({
 
 // 分页配置
 const paginationConfig = computed(() => ({
-  current: pagination.value.current,
-  pageSize: pagination.value.pageSize,
-  total: pagination.value.total,
+  current: store.pagination.current,
+  pageSize: store.pagination.pageSize,
+  total: store.pagination.total,
   showSizeChanger: true,
   showQuickJumper: true,
-  showTotal: (total) => `共 ${total} 条记录`
+  showTotal: (total) => `共 ${total} 条记录`,
+  pageSizeOptions: ['50', '100', '200', '500', '1000', '2000', '5000', '8000'],
+  size: 'small'
 }))
 
 // 方法
@@ -517,6 +595,9 @@ const formatNumber = (num) => {
 }
 
 const isFavorited = (tsCode) => {
+  if (!tsCode || !favoriteCodes.value || !Array.isArray(favoriteCodes.value)) {
+    return false
+  }
   return favoriteCodes.value.includes(tsCode)
 }
 
@@ -528,7 +609,13 @@ const handleReset = () => {
   store.resetFilters()
 }
 
-const handleTableChange = (pag) => {
+const handleTableChange = (pag, filters, sorter) => {
+  console.log('表格变化:', { pag, filters, sorter })
+  // 如果分页大小改变，更新store中的pageSize
+  if (pag.pageSize && pag.pageSize !== store.pagination.pageSize) {
+    store.pagination.pageSize = pag.pageSize
+  }
+  // 加载对应页的数据
   store.loadStocks(pag.current)
 }
 
@@ -558,7 +645,7 @@ const showFavorites = async () => {
     return
   }
   // 可以打开收藏列表模态框或直接筛选
-  filters.value.keyword = ''
+  store.filters.keyword = ''
   store.loadStocks(1)
 }
 
@@ -579,27 +666,139 @@ const showIndustryStats = () => {
 }
 
 const handleStockTypeChange = (value) => {
+  console.log('股票类型切换:', value)
+  // 切换类型时重置到第一页
+  store.pagination.current = 1
   store.setStockType(value)
+  // 更新路由查询参数，保持URL和菜单选中状态同步
+  router.replace({
+    name: 'StockList',
+    query: { ...route.query, stock_type: value }
+  })
 }
+
+// 获取路由信息
+const route = useRoute()
+const router = useRouter()
+
+// 根据路由查询参数初始化股票类型
+const initStockTypeFromRoute = () => {
+  const stockType = route.query?.stock_type
+  if (stockType === 'ipo' || stockType === 'all') {
+    store.setStockType(stockType)
+  } else {
+    // 如果没有查询参数，默认设置为'all'并更新URL
+    store.setStockType('all')
+    router.replace({
+      name: 'StockList',
+      query: { stock_type: 'all' }
+    })
+  }
+}
+
+// 监听路由查询参数变化
+watch(() => route.query?.stock_type, (newType) => {
+  if (newType === 'ipo' || newType === 'all') {
+    if (store.stockType !== newType) {
+      store.setStockType(newType)
+    }
+  }
+})
 
 // 初始化
 onMounted(async () => {
+  // 根据路由查询参数设置股票类型
+  initStockTypeFromRoute()
+  
   industriesLoading.value = true
   marketsLoading.value = true
   
+  // 使用nextTick确保UI先渲染，然后再加载数据
+  await nextTick()
+  
+  // 先加载行业和市场数据（这些数据量小，不会阻塞）
   await Promise.all([
     store.loadIndustries(),
     store.loadMarkets(),
-    store.loadFavorites(),
-    store.loadStocks(1)
+    store.loadFavorites()
   ])
   
   industriesLoading.value = false
   marketsLoading.value = false
+  
+  // 然后异步加载股票数据，不阻塞其他操作
+  store.loadStocks(1).catch(err => {
+    console.error('加载股票数据失败:', err)
+  })
 })
 </script>
 
 <style scoped>
+/* 页面容器 - 全宽显示，无左右留白 */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+/* 头部卡片 - 紧凑样式 */
+.header-card {
+  margin: 0;
+  border-radius: 0;
+}
+
+.header-card :deep(.ant-card-head) {
+  padding: 12px 16px;
+  min-height: 48px;
+}
+
+.header-card :deep(.ant-card-body) {
+  padding: 8px 16px 12px 16px;
+}
+
+.header-card h1 {
+  font-size: 20px !important;
+  margin: 0 !important;
+}
+
+.header-card p {
+  font-size: 13px !important;
+  margin: 4px 0 0 0 !important;
+}
+
+/* 筛选卡片 - 紧凑样式 */
+.filter-card {
+  margin: 8px 0 0 0;
+  border-radius: 0;
+}
+
+.filter-card :deep(.ant-card-head) {
+  padding: 10px 16px;
+  min-height: 40px;
+}
+
+.filter-card :deep(.ant-card-body) {
+  padding: 12px 16px;
+}
+
+/* 操作按钮区域 - 右对齐 */
+.filter-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 股票列表卡片 - 全宽显示 */
+.stock-list-card {
+  margin: 8px 0 0 0;
+  border-radius: 0;
+}
+
+.stock-list-card :deep(.ant-card-body) {
+  padding: 8px 16px;
+}
+
 .favorited {
   color: #faad14 !important;
   font-weight: 600;
@@ -607,6 +806,110 @@ onMounted(async () => {
 
 .favorited:hover {
   color: #ffc53d !important;
+}
+
+/* 紧凑表格样式 - 让一屏显示更多股票 */
+.compact-table :deep(.ant-table) {
+  font-size: 12px;
+}
+
+.compact-table :deep(.ant-table-thead > tr > th) {
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fafafa;
+  line-height: 1.2;
+}
+
+.compact-table :deep(.ant-table-tbody > tr > td) {
+  padding: 4px 4px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.compact-table :deep(.ant-table-tbody > tr) {
+  height: 28px;
+}
+
+.compact-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: #e6f7ff;
+}
+
+/* 确保loading遮罩层只覆盖表格区域，不影响其他区域 */
+.compact-table :deep(.ant-spin-nested-loading) {
+  position: relative;
+  min-height: 200px;
+  /* 确保loading容器不会阻止事件冒泡到父元素 */
+  pointer-events: none;
+}
+
+.compact-table :deep(.ant-spin-container) {
+  position: relative;
+  /* 容器内容可以接收点击事件 */
+  pointer-events: auto;
+}
+
+.compact-table :deep(.ant-spin-blur) {
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* 确保loading遮罩层不会阻止点击其他区域 */
+.compact-table :deep(.ant-spin) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  max-height: 100%;
+  /* loading遮罩层不阻止事件穿透 */
+  pointer-events: none;
+}
+
+.compact-table :deep(.ant-spin .ant-spin-dot) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* loading图标可以接收事件（如果需要） */
+  pointer-events: auto;
+}
+
+/* 确保表格卡片外的区域不受loading影响 */
+.stock-list-card {
+  position: relative;
+}
+
+.stock-list-card :deep(.ant-card-body) {
+  position: relative;
+  pointer-events: auto;
+}
+
+/* 数字列样式 */
+.number {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 11px;
+}
+
+
+/* 分页样式优化 */
+.compact-table :deep(.ant-pagination) {
+  margin: 12px 0;
+  font-size: 12px;
+}
+
+.compact-table :deep(.ant-pagination-item) {
+  min-width: 28px;
+  height: 28px;
+  line-height: 26px;
+  font-size: 12px;
+}
+
+.compact-table :deep(.ant-pagination-options) {
+  font-size: 12px;
 }
 </style>
 

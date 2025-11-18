@@ -99,7 +99,7 @@ def get_stocks():
         max_pe = request.args.get('max_pe', type=float)
         keyword = request.args.get('keyword', '')  # 股票代码或名称搜索
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
+        per_page = request.args.get('per_page', 200, type=int)
         
         logger.info(f"查询股票列表 - 类型: {stock_type}, 关键词: {keyword}, 行业: {industry}, "
                    f"市场: {market}, 市值: {min_market_value}-{max_market_value}, "
@@ -829,8 +829,31 @@ def get_strategy_selections():
     try:
         strategy_name = request.args.get('strategy_name', '')
         trade_date = request.args.get('trade_date', '')
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
+        
+        # 安全地解析 page 参数
+        try:
+            page_str = request.args.get('page', '1')
+            # 如果是字符串且包含 'object'，说明传递了错误的对象
+            if isinstance(page_str, str) and ('object' in page_str.lower() or 'PointerEvent' in page_str):
+                logger.warning(f"收到错误的 page 参数: {page_str}，使用默认值 1")
+                page = 1
+            else:
+                page = int(page_str) if page_str else 1
+        except (ValueError, TypeError):
+            logger.warning(f"无法解析 page 参数: {request.args.get('page')}，使用默认值 1")
+            page = 1
+        
+        # 安全地解析 per_page 参数
+        try:
+            per_page_str = request.args.get('per_page', '100')
+            per_page = int(per_page_str) if per_page_str else 100
+        except (ValueError, TypeError):
+            logger.warning(f"无法解析 per_page 参数: {request.args.get('per_page')}，使用默认值 100")
+            per_page = 100
+        
+        # 确保 page 和 per_page 是有效的正整数
+        page = max(1, page)
+        per_page = max(1, min(200, per_page))  # 限制每页最多200条
         
         session = get_session()
         try:
@@ -849,14 +872,26 @@ def get_strategy_selections():
             
             # 分页
             total = query.count()
-            selections = query.order_by(nullslast(desc(StockSelection.score)))\
-                .offset((page - 1) * per_page).limit(per_page).all()
+            logger.info(f"查询选股结果 - 策略: {strategy_name}, 日期: {trade_date}, 总数: {total}, 页码: {page}, 每页: {per_page}")
+            
+            # 排序：MySQL不支持NULLS LAST，使用ISNULL函数将NULL值排到最后
+            # 使用 func.isnull 将 NULL 值转换为 1，非 NULL 为 0，这样 NULL 值会排在最后
+            selections = query.order_by(
+                func.isnull(StockSelection.score),
+                desc(StockSelection.score)
+            ).offset((page - 1) * per_page).limit(per_page).all()
+            
+            logger.info(f"获取到 {len(selections)} 条选股结果")
             
             # 获取股票基本信息
             result = []
             for selection in selections:
-                stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
-                if stock:
+                try:
+                    stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
+                    if not stock:
+                        logger.warning(f"未找到股票基本信息: {selection.ts_code}")
+                        continue
+                    
                     # 获取最新价格信息
                     latest_daily = session.query(StockDaily).filter_by(ts_code=selection.ts_code)\
                         .order_by(StockDaily.trade_date.desc()).first()
@@ -868,14 +903,19 @@ def get_strategy_selections():
                         'industry': stock.industry,
                         'strategy_name': selection.strategy_name,
                         'trade_date': selection.trade_date,
-                        'score': float(selection.score) if selection.score else None,
+                        'score': float(selection.score) if selection.score is not None else None,
                         'reason': selection.reason,
-                        'close': float(latest_daily.close) if latest_daily and latest_daily.close else None,
-                        'pct_chg': float(latest_daily.pct_chg) if latest_daily and latest_daily.pct_chg else None,
-                        'vol': float(latest_daily.vol) if latest_daily and latest_daily.vol else None,
-                        'amount': float(latest_daily.amount) if latest_daily and latest_daily.amount else None,
+                        'close': float(latest_daily.close) if latest_daily and latest_daily.close is not None else None,
+                        'pct_chg': float(latest_daily.pct_chg) if latest_daily and latest_daily.pct_chg is not None else None,
+                        'vol': float(latest_daily.vol) if latest_daily and latest_daily.vol is not None else None,
+                        'amount': float(latest_daily.amount) if latest_daily and latest_daily.amount is not None else None,
                     }
                     result.append(stock_data)
+                except Exception as e:
+                    logger.error(f"处理选股结果 {selection.ts_code} 时出错: {e}", exc_info=True)
+                    continue
+            
+            logger.info(f"成功处理 {len(result)} 条选股结果")
             
             return jsonify({
                 'code': 0,
@@ -885,13 +925,18 @@ def get_strategy_selections():
                     'total': total,
                     'page': page,
                     'per_page': per_page,
-                    'total_pages': (total + per_page - 1) // per_page
+                    'total_pages': (total + per_page - 1) // per_page if per_page > 0 else 0
                 }
             })
+        except Exception as e:
+            logger.error(f"查询选股结果失败: {e}", exc_info=True)
+            session.rollback()
+            raise
         finally:
             session.close()
     except Exception as e:
-        return jsonify({'code': -1, 'message': str(e)}), 500
+        logger.error(f"获取选股结果API失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': f'获取选股结果失败: {str(e)}'}), 500
 
 
 @app.route('/api/strategy/dates', methods=['GET'])
@@ -933,7 +978,7 @@ def get_ipo_stocks():
         min_funds = request.args.get('min_funds', type=float)  # 最小募集资金（亿元）
         max_funds = request.args.get('max_funds', type=float)  # 最大募集资金（亿元）
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 50, type=int)
+        per_page = request.args.get('per_page', 200, type=int)
         
         logger.info(f"查询IPO股票列表 - 关键词: {keyword}, 日期范围: {start_date} 至 {end_date}, "
                    f"价格: {min_price}-{max_price}, PE: {min_pe}-{max_pe}, "
