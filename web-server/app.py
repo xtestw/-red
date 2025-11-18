@@ -962,6 +962,109 @@ def get_strategy_dates():
         return jsonify({'code': -1, 'message': str(e)}), 500
 
 
+@app.route('/robots.txt', methods=['GET'])
+def robots_txt():
+    """返回robots.txt文件"""
+    import config
+    
+    # 从配置文件读取域名
+    seo_config = config.get_seo_config()
+    site_url = seo_config.get('site_url', 'https://your-domain.com')
+    sitemap_url = f"{site_url}/sitemap.xml"
+    
+    robots_content = f"""User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: {sitemap_url}
+
+# 禁止爬取的路径
+Disallow: /api/
+Disallow: /admin/
+"""
+    return app.response_class(
+        robots_content,
+        mimetype='text/plain'
+    )
+
+
+@app.route('/sitemap.xml', methods=['GET'])
+def sitemap_xml():
+    """生成并返回sitemap.xml"""
+    from datetime import datetime
+    import config
+    
+    # 优先使用配置文件中的域名
+    seo_config = config.get_seo_config()
+    base_url = seo_config.get('site_url', 'https://your-domain.com')
+    # 如果是本地开发环境且配置为默认值，尝试使用请求的host
+    if base_url == 'https://your-domain.com':
+        request_url = request.host_url.rstrip('/')
+        if 'localhost' not in request_url and '127.0.0.1' not in request_url:
+            base_url = request_url
+    
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    
+    sitemap = f'''<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+  <!-- 首页 -->
+  <url>
+    <loc>{base_url}/</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  
+  <!-- 股票列表页 -->
+  <url>
+    <loc>{base_url}/stocks</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  
+  <!-- IPO新股页 -->
+  <url>
+    <loc>{base_url}/ipo</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  
+  <!-- 策略选股页 -->
+  <url>
+    <loc>{base_url}/strategy/selection</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <!-- 外盘跟踪页 -->
+  <url>
+    <loc>{base_url}/global</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+  
+  <!-- 大佬追踪页 -->
+  <url>
+    <loc>{base_url}/bigplayers</loc>
+    <lastmod>{current_date}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+</urlset>'''
+    
+    return app.response_class(
+        sitemap,
+        mimetype='application/xml'
+    )
+
+
 @app.route('/api/stocks/ipo', methods=['GET'])
 def get_ipo_stocks():
     """获取IPO股票列表（支持筛选）"""
@@ -1074,6 +1177,18 @@ def get_ipo_stocks():
 def assets(filename):
     """服务前端静态资源"""
     return send_from_directory(os.path.join(FRONTEND_DIST, 'assets'), filename)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """返回favicon"""
+    try:
+        favicon_path = os.path.join(FRONTEND_DIST, 'favicon.ico')
+        if os.path.exists(favicon_path):
+            return send_from_directory(FRONTEND_DIST, 'favicon.ico')
+    except:
+        pass
+    return '', 204  # No Content
 
 
 # 前端路由（Vue Router history模式支持）

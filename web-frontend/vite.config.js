@@ -25,6 +25,8 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false
-  }
+  },
+  // 公共资源目录
+  publicDir: 'public'
 })
 

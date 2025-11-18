@@ -109,9 +109,26 @@ FLASK_HOST = _flask_config['host']
 FLASK_PORT = _flask_config['port']
 FLASK_DEBUG = _flask_config['debug']
 
+# SEO配置（使用函数获取，支持热重载）
+def get_seo_config():
+    """获取SEO配置（支持热重载）"""
+    config = get_config()
+    seo_config = config.get('seo', {})
+    return {
+        'site_url': seo_config.get('site_url', 'https://your-domain.com'),
+        'site_name': seo_config.get('site_name', 'Red-Stock'),
+        'site_description': seo_config.get('site_description', '专业的A股数据分析平台')
+    }
+
+_seo_config = get_seo_config()
+SEO_SITE_URL = _seo_config['site_url']
+SEO_SITE_NAME = _seo_config['site_name']
+SEO_SITE_DESCRIPTION = _seo_config['site_description']
+
 
 # 注意：以下变量在模块加载时初始化，如需支持热重载，请使用对应的get_*函数
 # TUSHARE_TOKEN - 使用 get_tushare_token() 获取最新值
 # MYSQL_CONFIG - 使用 get_mysql_config() 获取最新值  
 # FLASK_HOST, FLASK_PORT, FLASK_DEBUG - 使用 get_flask_config() 获取最新值
+# SEO_SITE_URL, SEO_SITE_NAME, SEO_SITE_DESCRIPTION - 使用 get_seo_config() 获取最新值
 
