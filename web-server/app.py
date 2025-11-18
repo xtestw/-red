@@ -887,7 +887,7 @@ def get_strategy_selections():
             result = []
             for selection in selections:
                 try:
-                    stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
+                stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
                     if not stock:
                         logger.warning(f"未找到股票基本信息: {selection.ts_code}")
                         continue

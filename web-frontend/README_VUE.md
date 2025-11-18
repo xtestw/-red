@@ -145,7 +145,7 @@ npm run build
 1. **通过 Vercel Dashboard**
    - 访问 [vercel.com](https://vercel.com) 并登录
    - 导入 Git 仓库，选择 `web-frontend` 目录
-   - 配置环境变量 `VITE_API_BASE` 为后端 API 地址
+   - 配置环境变量 `VITE_API_BASE = https://stockapi.xtestw.com/api`
    - 点击部署
 
 2. **通过 Vercel CLI**
@@ -154,6 +154,7 @@ npm run build
    cd web-frontend
    vercel login
    vercel env add VITE_API_BASE
+   # 输入: https://stockapi.xtestw.com/api
    vercel --prod
    ```
 

@@ -31,9 +31,9 @@
 4. **配置环境变量**
    在 "Environment Variables" 中添加：
    ```
-   VITE_API_BASE = https://your-backend-domain.com/api
+   VITE_API_BASE = https://stockapi.xtestw.com/api
    ```
-   将 `your-backend-domain.com` 替换为你的实际后端域名。
+   这是后端API的完整地址。
 
 5. **部署**
    - 点击 "Deploy"
@@ -66,7 +66,7 @@
    ```bash
    vercel env add VITE_API_BASE
    ```
-   输入后端 API 地址，例如：`https://api.red-stock.online/api`
+   输入后端 API 地址：`https://stockapi.xtestw.com/api`
 
 6. **生产环境部署**
    ```bash
@@ -87,27 +87,27 @@
 
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
-| `VITE_API_BASE` | 后端 API 基础地址 | `https://api.red-stock.online/api` |
+| `VITE_API_BASE` | 后端 API 基础地址 | `https://stockapi.xtestw.com/api` |
 
 ## 后端 API 配置
 
 ### 选项 1：后端独立部署（推荐）
 
-如果后端部署在独立的服务器（如云服务器、Railway、Render 等）：
+后端已部署在 `stockapi.xtestw.com`：
 
-1. 在 Vercel 环境变量中设置 `VITE_API_BASE` 为后端完整 URL
+1. 在 Vercel 环境变量中设置 `VITE_API_BASE = https://stockapi.xtestw.com/api`
 2. 确保后端已配置 CORS，允许 Vercel 域名访问
 
-### 选项 2：使用 Vercel Rewrites 代理
+### 选项 2：使用 Vercel Rewrites 代理（不推荐）
 
-如果需要在 Vercel 上代理 API 请求，可以修改 `vercel.json`：
+如果需要通过 Vercel 代理 API 请求，可以修改 `vercel.json`：
 
 ```json
 {
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://your-backend-domain.com/api/$1"
+      "destination": "https://stockapi.xtestw.com/api/$1"
     },
     {
       "source": "/(.*)",
@@ -118,6 +118,8 @@
 ```
 
 然后设置 `VITE_API_BASE=/api`。
+
+**注意**：推荐直接使用选项1，直接指向后端API地址。
 
 ## 自定义域名
 
@@ -159,9 +161,10 @@ vercel env add VITE_API_BASE production
 
 ### 2. API 请求失败
 
-- 检查 `VITE_API_BASE` 环境变量是否正确
+- 检查 `VITE_API_BASE` 环境变量是否正确设置为 `https://stockapi.xtestw.com/api`
 - 检查后端 CORS 配置是否允许 Vercel 域名
-- 检查后端服务是否正常运行
+- 检查后端服务 `stockapi.xtestw.com` 是否正常运行
+- 在浏览器开发者工具的Network标签中查看API请求的完整URL
 
 ### 3. 构建失败
 

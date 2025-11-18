@@ -93,7 +93,7 @@ def job_fetch_weekly_data(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近10年周线数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近30天的数据
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近30天周线数据（{start_date} 至 {end_date}）")
         
         fetch_stock_weekly(start_date=start_date, end_date=end_date)
@@ -119,7 +119,7 @@ def job_fetch_monthly_data(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近20年月线数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近90天的数据
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近90天月线数据（{start_date} 至 {end_date}）")
         
         fetch_stock_monthly(start_date=start_date, end_date=end_date)
@@ -145,7 +145,7 @@ def job_fetch_moneyflow(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近3年资金流向数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近5天的数据
-            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近5天资金流向数据（{start_date} 至 {end_date}）")
         
         fetch_stock_moneyflow(start_date=start_date, end_date=end_date)
@@ -171,7 +171,7 @@ def job_fetch_indicator(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近3年指标数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近5天的数据
-            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近5天指标数据（{start_date} 至 {end_date}）")
         
         fetch_stock_indicator(start_date=start_date, end_date=end_date)
