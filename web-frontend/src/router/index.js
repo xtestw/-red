@@ -3,11 +3,26 @@ import Layout from '../components/Layout.vue'
 import Dashboard from '../views/Dashboard.vue'
 import StockList from '../views/StockList.vue'
 import IPOStocks from '../views/IPOStocks.vue'
+import SectorData from '../views/SectorData.vue'
+import IndexList from '../views/IndexList.vue'
 import GlobalMarket from '../views/GlobalMarket.vue'
 import BigPlayerTracking from '../views/BigPlayerTracking.vue'
 import StrategySelection from '../views/StrategySelection.vue'
+import DataMap from '../views/DataMap.vue'
+import Login from '../views/Login.vue'
+import AuthCallback from '../views/AuthCallback.vue'
 
 const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: Login
+  },
+  {
+    path: '/auth/callback',
+    name: 'AuthCallback',
+    component: AuthCallback
+  },
   {
     path: '/',
     component: Layout,
@@ -28,6 +43,16 @@ const routes = [
         component: IPOStocks
       },
       {
+        path: 'sector',
+        name: 'SectorData',
+        component: SectorData
+      },
+      {
+        path: 'index',
+        name: 'IndexList',
+        component: IndexList
+      },
+      {
         path: 'strategy/selection',
         name: 'StrategySelection',
         component: StrategySelection
@@ -41,6 +66,11 @@ const routes = [
         path: 'bigplayers',
         name: 'BigPlayerTracking',
         component: BigPlayerTracking
+      },
+      {
+        path: 'datamap',
+        name: 'DataMap',
+        component: DataMap
       }
     ]
   }

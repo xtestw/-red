@@ -188,5 +188,43 @@ CREATE TABLE IF NOT EXISTS `stock_ipo` (
   KEY `idx_issue_date` (`issue_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='IPO新股列表表';
 
+-- 用户表
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `openid` varchar(100) NOT NULL COMMENT '微信OpenID',
+  `unionid` varchar(100) DEFAULT NULL COMMENT '微信UnionID',
+  `nickname` varchar(100) DEFAULT NULL COMMENT '昵称',
+  `avatar` varchar(500) DEFAULT NULL COMMENT '头像URL',
+  `gender` int(11) DEFAULT NULL COMMENT '性别：0未知，1男，2女',
+  `country` varchar(50) DEFAULT NULL COMMENT '国家',
+  `province` varchar(50) DEFAULT NULL COMMENT '省份',
+  `city` varchar(50) DEFAULT NULL COMMENT '城市',
+  `language` varchar(20) DEFAULT NULL COMMENT '语言',
+  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
+  `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
+  `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_openid` (`openid`),
+  KEY `idx_unionid` (`unionid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
 
+-- 用户会话表（用于存储JWT token）
+CREATE TABLE IF NOT EXISTS `user_sessions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` int(11) NOT NULL COMMENT '用户ID',
+  `token` varchar(500) NOT NULL COMMENT 'JWT Token',
+  `refresh_token` varchar(500) DEFAULT NULL COMMENT '刷新Token',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
+  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
+  `last_used_at` datetime DEFAULT NULL COMMENT '最后使用时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_token` (`token`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户会话表';
+
+-- 修改stock_favorite表的user_id字段类型，从varchar改为int，关联users表
+ALTER TABLE `stock_favorite` 
+  MODIFY COLUMN `user_id` int(11) DEFAULT NULL COMMENT '用户ID',
+  ADD KEY `idx_user_id_fk` (`user_id`);
 

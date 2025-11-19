@@ -96,12 +96,17 @@ def calculate_volume_strategy(trade_date=None):
                 if not recent_3_days or len(recent_3_days) < 3:
                     continue
                 
-                # 计算近3天成交量最大值
-                vol_3_days = [d.vol for d in recent_3_days if d.vol and d.vol > 0]
-                if not vol_3_days:
-                    continue
+                # 计算近3天成交量最大值，并记录对应的日期
+                max_vol_3_days = 0
+                max_vol_3_date = None
+                for d in recent_3_days:
+                    if d.vol and d.vol > 0:
+                        if d.vol > max_vol_3_days:
+                            max_vol_3_days = d.vol
+                            max_vol_3_date = d.trade_date
                 
-                max_vol_3_days = max(vol_3_days)
+                if max_vol_3_days == 0 or not max_vol_3_date:
+                    continue
                 
                 # 获取近30天的数据
                 recent_30_days = session.query(StockDaily).filter(
@@ -199,28 +204,58 @@ def calculate_volume_strategy(trade_date=None):
                     max_period = max(periods, key=lambda x: x[1])
                     max_period_name = max_period[0]
                     max_period_score = max_period[1]
-                    max_period_vol = max_period[2]
                     
                     # 找出所有达到最大量的时间段
                     max_periods = [p[0] for p in periods if p[1] >= 1.0]
                     
-                    # 生成选股理由，明确标注是哪个时间段的最大量
-                    if len(max_periods) == 4:
+                    # 格式化日期显示（YYYYMMDD -> YYYY-MM-DD）
+                    max_vol_date_str = max_vol_3_date
+                    if len(max_vol_3_date) == 8:
+                        max_vol_date_str = f"{max_vol_3_date[:4]}-{max_vol_3_date[4:6]}-{max_vol_3_date[6:8]}"
+                    
+                    # 判断是哪个时间段的最高成交量（优先级：240天 > 120天 > 60天 > 30天）
+                    is_240_max = score_240 >= 1.0
+                    is_120_max = score_120 >= 1.0 and not is_240_max
+                    is_60_max = score_60 >= 1.0 and not is_240_max and not is_120_max
+                    is_30_max = score_30 >= 1.0 and not is_240_max and not is_120_max and not is_60_max
+                    
+                    # 生成选股理由，明确标注是哪个时间段的最大量，并显示具体日期
+                    if is_240_max:
                         reason = (
-                            f"近3天最大成交量{max_vol_3_days:.0f}手，"
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
+                            f"是240天最高成交量({score_240:.2f}倍)"
+                        )
+                    elif is_120_max:
+                        reason = (
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
+                            f"是120天最高成交量({score_120:.2f}倍)"
+                        )
+                    elif is_60_max:
+                        reason = (
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
+                            f"是60天最高成交量({score_60:.2f}倍)"
+                        )
+                    elif is_30_max:
+                        reason = (
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
+                            f"是30天最高成交量({score_30:.2f}倍)"
+                        )
+                    elif len(max_periods) == 4:
+                        reason = (
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
                             f"同时是近30天/60天/120天/240天的最大量，"
                             f"分别是{score_30:.2f}/{score_60:.2f}/{score_120:.2f}/{score_240:.2f}倍"
                         )
                     elif len(max_periods) > 1:
                         periods_str = '/'.join(max_periods)
                         reason = (
-                            f"近3天最大成交量{max_vol_3_days:.0f}手，"
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
                             f"是近{periods_str}的最大量，"
                             f"其中{max_period_name}倍数最高({max_period_score:.2f}倍)"
                         )
                     else:
                         reason = (
-                            f"近3天最大成交量{max_vol_3_days:.0f}手，"
+                            f"{max_vol_date_str}成交量{max_vol_3_days:.0f}手，"
                             f"是近{max_period_name}的最大量({max_period_score:.2f}倍)，"
                             f"同时超过近30天/60天/120天/240天的最大值"
                         )

@@ -28,6 +28,9 @@ apscheduler>=3.9.0
 # Excel导出
 openpyxl>=3.0.0
 
+# JWT认证
+PyJWT>=2.8.0
+
 # 注意：使用selenium需要安装Chrome浏览器和ChromeDriver
 # ChromeDriver下载地址：https://chromedriver.chromium.org/
 

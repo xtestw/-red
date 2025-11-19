@@ -54,13 +54,83 @@ const loading = ref(false)
 const statsData = ref([])
 
 const columns = [
-  { title: '行业', dataIndex: 'industry', key: 'industry', width: 200 },
-  { title: '股票数量', dataIndex: 'stock_count', key: 'stock_count', width: 120, align: 'right' },
-  { title: '平均市值（万元）', key: 'avg_market_value', width: 150, align: 'right' },
-  { title: '总市值（万元）', key: 'total_market_value', width: 150, align: 'right' },
-  { title: '平均PE', key: 'avg_pe', width: 100, align: 'right' },
-  { title: '最低PE', key: 'min_pe', width: 100, align: 'right' },
-  { title: '最高PE', key: 'max_pe', width: 100, align: 'right' }
+  { 
+    title: '行业', 
+    dataIndex: 'industry', 
+    key: 'industry', 
+    width: 200,
+    sorter: (a, b) => {
+      if (!a.industry || !b.industry) return 0
+      return a.industry.localeCompare(b.industry)
+    }
+  },
+  { 
+    title: '股票数量', 
+    dataIndex: 'stock_count', 
+    key: 'stock_count', 
+    width: 120, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.stock_count || 0
+      const bVal = b.stock_count || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '平均市值（万元）', 
+    key: 'avg_market_value', 
+    width: 150, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.avg_market_value || 0
+      const bVal = b.avg_market_value || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '总市值（万元）', 
+    key: 'total_market_value', 
+    width: 150, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.total_market_value || 0
+      const bVal = b.total_market_value || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '平均PE', 
+    key: 'avg_pe', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.avg_pe || 0
+      const bVal = b.avg_pe || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '最低PE', 
+    key: 'min_pe', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.min_pe || 0
+      const bVal = b.min_pe || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '最高PE', 
+    key: 'max_pe', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.max_pe || 0
+      const bVal = b.max_pe || 0
+      return aVal - bVal
+    }
+  }
 ]
 
 const formatNumber = (num) => {

@@ -222,13 +222,14 @@ export const useStockStore = defineStore('stock', () => {
 
   const addFavorite = async (tsCode, notes = '') => {
     try {
-      const result = await favoriteAPI.addFavorite(tsCode, 'default', notes)
+      const result = await favoriteAPI.addFavorite(tsCode, notes)
       if (result.code === 0) {
         await loadFavorites()
         return true
       }
     } catch (error) {
       console.error('添加收藏失败:', error)
+      throw error
     }
     return false
   }
@@ -242,6 +243,7 @@ export const useStockStore = defineStore('stock', () => {
       }
     } catch (error) {
       console.error('取消收藏失败:', error)
+      throw error
     }
     return false
   }

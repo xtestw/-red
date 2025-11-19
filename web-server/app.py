@@ -3,21 +3,25 @@
 """
 Flask Web应用主文件
 """
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import sys
 import os
 import logging
 import time
+import jwt
+import requests
+from functools import wraps
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import get_flask_config, reload_config
+from config import get_flask_config, reload_config, get_wechat_config, get_jwt_config, get_seo_config
 from database import (
     get_session, StockBasic, StockDaily, StockWeekly, StockMonthly,
-    StockMoneyflow, StockIndicator, StockFavorite, StockSelection, StockIPO
+    StockMoneyflow, StockIndicator, StockFavorite, StockSelection, StockIPO,
+    User, UserSession, IndexBasic, IndexDaily, IndexWeekly, IndexMonthly, IndexWeight
 )
 from sqlalchemy import and_, or_, func, desc, nullslast
 import pandas as pd
@@ -82,6 +86,431 @@ def log_response_info(response):
 def health():
     """健康检查接口"""
     return jsonify({'status': 'ok', 'message': '服务运行正常'})
+
+
+# ==================== 认证相关 ====================
+
+def generate_token(user_id, expires_in=None):
+    """生成JWT token"""
+    jwt_config = get_jwt_config()
+    if expires_in is None:
+        expires_in = jwt_config['expires_in']
+    
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.utcnow() + timedelta(seconds=expires_in),
+        'iat': datetime.utcnow()
+    }
+    token = jwt.encode(payload, jwt_config['secret_key'], algorithm='HS256')
+    return token
+
+
+def verify_token(token):
+    """验证JWT token"""
+    try:
+        jwt_config = get_jwt_config()
+        payload = jwt.decode(token, jwt_config['secret_key'], algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+def get_current_user():
+    """从请求头获取当前用户"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return None
+    
+    try:
+        # 支持 "Bearer <token>" 格式
+        token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else auth_header
+        payload = verify_token(token)
+        if payload:
+            return payload.get('user_id')
+    except Exception as e:
+        logger.error(f"获取当前用户失败: {e}")
+    return None
+
+
+def login_required(f):
+    """登录验证装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'code': -1, 'message': '请先登录'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# 临时存储登录状态（实际生产环境应使用Redis等）
+_login_sessions = {}
+import threading
+_login_sessions_lock = threading.Lock()
+
+@app.route('/api/auth/wechat/login', methods=['GET'])
+def wechat_login():
+    """微信登录 - 生成授权URL和二维码数据"""
+    try:
+        wechat_config = get_wechat_config()
+        app_id = wechat_config.get('app_id')
+        redirect_uri = wechat_config.get('redirect_uri')
+        
+        if not app_id:
+            return jsonify({'code': -1, 'message': '微信配置未设置'}), 500
+        
+        # 生成state参数（用于防止CSRF攻击）
+        import secrets
+        state = secrets.token_urlsafe(32)
+        
+        # 微信网页授权URL
+        auth_url = (
+            f"https://open.weixin.qq.com/connect/oauth2/authorize"
+            f"?appid={app_id}"
+            f"&redirect_uri={redirect_uri}"
+            f"&response_type=code"
+            f"&scope=snsapi_userinfo"
+            f"&state={state}"
+            f"#wechat_redirect"
+        )
+        
+        # 存储登录状态（5分钟过期）
+        with _login_sessions_lock:
+            _login_sessions[state] = {
+                'status': 'pending',  # pending, scanned, success, expired
+                'created_at': datetime.now(),
+                'token': None,
+                'refresh_token': None
+            }
+        
+        return jsonify({
+            'code': 0,
+            'message': 'success',
+            'data': {
+                'auth_url': auth_url,
+                'state': state,
+                'qr_url': auth_url  # 用于生成二维码的URL
+            }
+        })
+    except Exception as e:
+        logger.error(f"生成微信登录URL失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/auth/wechat/status/<state>', methods=['GET'])
+def check_login_status(state):
+    """检查登录状态"""
+    try:
+        with _login_sessions_lock:
+            session_data = _login_sessions.get(state)
+            
+            if not session_data:
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'status': 'expired',
+                        'message': '登录会话已过期，请重新扫码'
+                    }
+                })
+            
+            # 检查是否过期（5分钟）
+            created_at = session_data['created_at']
+            # 确保created_at是datetime对象
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                except:
+                    # 如果解析失败，使用当前时间
+                    created_at = datetime.now()
+            
+            if (datetime.now() - created_at).total_seconds() > 300:
+                # 过期，删除
+                del _login_sessions[state]
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'status': 'expired',
+                        'message': '登录会话已过期，请重新扫码'
+                    }
+                })
+            
+            status = session_data.get('status', 'pending')
+            if status == 'success':
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'status': 'success',
+                        'token': session_data.get('token'),
+                        'refresh_token': session_data.get('refresh_token')
+                    }
+                })
+            else:
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'status': status,
+                        'message': '等待扫码' if status == 'pending' else '已扫码，等待确认'
+                    }
+                })
+    except Exception as e:
+        logger.error(f"检查登录状态失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/auth/wechat/callback', methods=['GET'])
+def wechat_callback():
+    """微信登录回调 - 处理授权码，获取用户信息"""
+    try:
+        code = request.args.get('code')
+        state = request.args.get('state')
+        
+        if not code:
+            return jsonify({'code': -1, 'message': '缺少授权码'}), 400
+        
+        wechat_config = get_wechat_config()
+        app_id = wechat_config.get('app_id')
+        app_secret = wechat_config.get('app_secret')
+        
+        if not app_id or not app_secret:
+            return jsonify({'code': -1, 'message': '微信配置未设置'}), 500
+        
+        # 第一步：用code换取access_token
+        token_url = "https://api.weixin.qq.com/sns/oauth2/access_token"
+        token_params = {
+            'appid': app_id,
+            'secret': app_secret,
+            'code': code,
+            'grant_type': 'authorization_code'
+        }
+        
+        token_response = requests.get(token_url, params=token_params, timeout=10)
+        token_data = token_response.json()
+        
+        if 'errcode' in token_data:
+            logger.error(f"获取access_token失败: {token_data}")
+            return jsonify({'code': -1, 'message': f"微信授权失败: {token_data.get('errmsg', '未知错误')}"}), 400
+        
+        access_token = token_data.get('access_token')
+        openid = token_data.get('openid')
+        unionid = token_data.get('unionid')
+        
+        if not access_token or not openid:
+            return jsonify({'code': -1, 'message': '获取access_token失败'}), 400
+        
+        # 第二步：用access_token获取用户信息
+        userinfo_url = "https://api.weixin.qq.com/sns/userinfo"
+        userinfo_params = {
+            'access_token': access_token,
+            'openid': openid,
+            'lang': 'zh_CN'
+        }
+        
+        userinfo_response = requests.get(userinfo_url, params=userinfo_params, timeout=10)
+        userinfo_data = userinfo_response.json()
+        
+        if 'errcode' in userinfo_data:
+            logger.error(f"获取用户信息失败: {userinfo_data}")
+            return jsonify({'code': -1, 'message': f"获取用户信息失败: {userinfo_data.get('errmsg', '未知错误')}"}), 400
+        
+        # 第三步：创建或更新用户
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(openid=openid).first()
+            now = datetime.now()
+            
+            if user:
+                # 更新用户信息
+                user.unionid = unionid or user.unionid
+                user.nickname = userinfo_data.get('nickname', user.nickname)
+                user.avatar = userinfo_data.get('headimgurl', user.avatar)
+                user.gender = userinfo_data.get('sex', user.gender)
+                user.country = userinfo_data.get('country', user.country)
+                user.province = userinfo_data.get('province', user.province)
+                user.city = userinfo_data.get('city', user.city)
+                user.language = userinfo_data.get('language', user.language)
+                user.updated_at = now
+                user.last_login_at = now
+            else:
+                # 创建新用户
+                user = User(
+                    openid=openid,
+                    unionid=unionid,
+                    nickname=userinfo_data.get('nickname', ''),
+                    avatar=userinfo_data.get('headimgurl', ''),
+                    gender=userinfo_data.get('sex', 0),
+                    country=userinfo_data.get('country', ''),
+                    province=userinfo_data.get('province', ''),
+                    city=userinfo_data.get('city', ''),
+                    language=userinfo_data.get('language', 'zh_CN'),
+                    created_at=now,
+                    updated_at=now,
+                    last_login_at=now
+                )
+                session.add(user)
+            
+            session.commit()
+            session.refresh(user)
+            
+            # 第四步：生成JWT token
+            jwt_config = get_jwt_config()
+            token = generate_token(user.id, jwt_config['expires_in'])
+            refresh_token = generate_token(user.id, jwt_config['refresh_expires_in'])
+            
+            # 保存会话到数据库
+            expires_at = datetime.utcnow() + timedelta(seconds=jwt_config['expires_in'])
+            user_session = UserSession(
+                user_id=user.id,
+                token=token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                created_at=now,
+                last_used_at=now
+            )
+            session.add(user_session)
+            session.commit()
+            
+            # 如果存在state，更新登录会话状态
+            if state:
+                with _login_sessions_lock:
+                    if state in _login_sessions:
+                        _login_sessions[state]['status'] = 'success'
+                        _login_sessions[state]['token'] = token
+                        _login_sessions[state]['refresh_token'] = refresh_token
+            
+            # 重定向到前端页面，携带token
+            seo_config = get_seo_config()
+            frontend_url = seo_config.get('site_url', 'http://localhost:5173')
+            if not frontend_url.startswith('http'):
+                frontend_url = f"http://{frontend_url}"
+            
+            # 重定向到前端页面，携带token
+            redirect_url = f"{frontend_url}/auth/callback?token={token}&refresh_token={refresh_token}"
+            return redirect(redirect_url)
+        finally:
+            session.close()
+            
+    except Exception as e:
+        logger.error(f"微信登录回调失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': f'登录失败: {str(e)}'}), 500
+
+
+@app.route('/api/auth/user', methods=['GET'])
+@login_required
+def get_current_user_info():
+    """获取当前用户信息"""
+    try:
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'code': -1, 'message': '未登录'}), 401
+        
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return jsonify({'code': -1, 'message': '用户不存在'}), 404
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'id': user.id,
+                    'openid': user.openid,
+                    'nickname': user.nickname,
+                    'avatar': user.avatar,
+                    'gender': user.gender,
+                    'country': user.country,
+                    'province': user.province,
+                    'city': user.city,
+                    'created_at': user.created_at.isoformat() if user.created_at else None,
+                    'last_login_at': user.last_login_at.isoformat() if user.last_login_at else None
+                }
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取用户信息失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def logout():
+    """退出登录"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else auth_header
+            
+            session = get_session()
+            try:
+                # 删除会话
+                user_session = session.query(UserSession).filter_by(token=token).first()
+                if user_session:
+                    session.delete(user_session)
+                    session.commit()
+            finally:
+                session.close()
+        
+        return jsonify({'code': 0, 'message': '退出成功'})
+    except Exception as e:
+        logger.error(f"退出登录失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/auth/refresh', methods=['POST'])
+def refresh_token():
+    """刷新token"""
+    try:
+        data = request.get_json()
+        refresh_token = data.get('refresh_token')
+        
+        if not refresh_token:
+            return jsonify({'code': -1, 'message': '缺少refresh_token'}), 400
+        
+        payload = verify_token(refresh_token)
+        if not payload:
+            return jsonify({'code': -1, 'message': 'refresh_token无效或已过期'}), 401
+        
+        user_id = payload.get('user_id')
+        if not user_id:
+            return jsonify({'code': -1, 'message': 'token格式错误'}), 400
+        
+        # 生成新的token
+        jwt_config = get_jwt_config()
+        new_token = generate_token(user_id, jwt_config['expires_in'])
+        new_refresh_token = generate_token(user_id, jwt_config['refresh_expires_in'])
+        
+        # 更新会话
+        session = get_session()
+        try:
+            old_session = session.query(UserSession).filter_by(refresh_token=refresh_token).first()
+            if old_session:
+                old_session.token = new_token
+                old_session.refresh_token = new_refresh_token
+                old_session.expires_at = datetime.utcnow() + timedelta(seconds=jwt_config['expires_in'])
+                old_session.last_used_at = datetime.utcnow()
+                session.commit()
+        finally:
+            session.close()
+        
+        return jsonify({
+            'code': 0,
+            'message': '刷新成功',
+            'data': {
+                'token': new_token,
+                'refresh_token': new_refresh_token,
+                'expires_in': jwt_config['expires_in']
+            }
+        })
+    except Exception as e:
+        logger.error(f"刷新token失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
 
 
 @app.route('/api/stocks', methods=['GET'])
@@ -653,10 +1082,14 @@ def export_stock_data(ts_code):
 
 
 @app.route('/api/favorites', methods=['GET'])
+@login_required
 def get_favorites():
     """获取收藏的股票列表"""
     try:
-        user_id = request.args.get('user_id', 'default')
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'code': -1, 'message': '请先登录'}), 401
+        
         session = get_session()
         try:
             favorites = session.query(StockFavorite).filter_by(user_id=user_id).all()
@@ -683,12 +1116,16 @@ def get_favorites():
 
 
 @app.route('/api/favorites', methods=['POST'])
+@login_required
 def add_favorite():
     """添加收藏"""
     try:
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'code': -1, 'message': '请先登录'}), 401
+        
         data = request.get_json()
         ts_code = data.get('ts_code')
-        user_id = data.get('user_id', 'default')
         notes = data.get('notes', '')
         
         if not ts_code:
@@ -722,10 +1159,14 @@ def add_favorite():
 
 
 @app.route('/api/favorites/<ts_code>', methods=['DELETE'])
+@login_required
 def remove_favorite(ts_code):
     """取消收藏"""
     try:
-        user_id = request.args.get('user_id', 'default')
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'code': -1, 'message': '请先登录'}), 401
+        
         session = get_session()
         try:
             favorite = session.query(StockFavorite).filter_by(
@@ -799,6 +1240,203 @@ def get_industry_statistics():
         finally:
             session.close()
     except Exception as e:
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/market/overview', methods=['GET'])
+def get_market_overview():
+    """获取市场概览（主要指数当天数据）"""
+    try:
+        session = get_session()
+        try:
+            result = {}
+            
+            # 尝试获取指数数据（如果表存在）
+            try:
+                from database import IndexDaily
+                # 检查表是否存在
+                from sqlalchemy import inspect
+                inspector = inspect(session.bind)
+                tables = inspector.get_table_names()
+                
+                if 'index_daily' in tables:
+                    # 获取最新交易日期
+                    latest_date = session.query(func.max(IndexDaily.trade_date)).scalar()
+                    if latest_date:
+                        # 获取主要指数代码
+                        index_codes = {
+                            'sh_index': '000001.SH',  # 上证指数
+                            'sz_index': '399001.SZ',   # 深证成指
+                            'cyb_index': '399006.SZ'   # 创业板指
+                        }
+                        
+                        for key, ts_code in index_codes.items():
+                            index_data = session.query(IndexDaily).filter(
+                                and_(
+                                    IndexDaily.ts_code == ts_code,
+                                    IndexDaily.trade_date == latest_date
+                                )
+                            ).first()
+                            
+                            if index_data:
+                                result[key] = {
+                                    'ts_code': index_data.ts_code,
+                                    'trade_date': index_data.trade_date,
+                                    'close': float(index_data.close) if index_data.close else None,
+                                    'open': float(index_data.open) if index_data.open else None,
+                                    'high': float(index_data.high) if index_data.high else None,
+                                    'low': float(index_data.low) if index_data.low else None,
+                                    'pre_close': float(index_data.pre_close) if index_data.pre_close else None,
+                                    'change': float(index_data.change) if index_data.change else None,
+                                    'pct_chg': float(index_data.pct_chg) if index_data.pct_chg else None,
+                                    'vol': float(index_data.vol) if index_data.vol else None,
+                                    'amount': float(index_data.amount) if index_data.amount else None
+                                }
+            except Exception as e:
+                # 如果表不存在或查询失败，记录日志但不影响其他数据
+                logger.warning(f"获取指数数据失败（表可能不存在）: {e}")
+            
+            # 计算市场统计（上涨、下跌、平盘家数）
+            try:
+                latest_stock_date = session.query(func.max(StockDaily.trade_date)).scalar()
+                if latest_stock_date:
+                    stocks = session.query(StockDaily).filter(
+                        StockDaily.trade_date == latest_stock_date
+                    ).all()
+                    
+                    rise_count = sum(1 for s in stocks if s.pct_chg and s.pct_chg > 0)
+                    fall_count = sum(1 for s in stocks if s.pct_chg and s.pct_chg < 0)
+                    flat_count = sum(1 for s in stocks if s.pct_chg and s.pct_chg == 0)
+                    total_amount = sum(float(s.amount or 0) for s in stocks) / 100000000  # 转换为亿元
+                    
+                    result['stats'] = {
+                        'rise_count': rise_count,
+                        'fall_count': fall_count,
+                        'flat_count': flat_count,
+                        'total_amount': round(total_amount, 2)
+                    }
+                else:
+                    result['stats'] = {
+                        'rise_count': 0,
+                        'fall_count': 0,
+                        'flat_count': 0,
+                        'total_amount': 0
+                    }
+            except Exception as e:
+                logger.warning(f"获取市场统计失败: {e}")
+                result['stats'] = {
+                    'rise_count': 0,
+                    'fall_count': 0,
+                    'flat_count': 0,
+                    'total_amount': 0
+                }
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取市场概览失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/stocks/<ts_code>/sector', methods=['GET'])
+def get_stock_sector_analysis(ts_code):
+    """获取股票板块分析数据"""
+    try:
+        session = get_session()
+        try:
+            # 获取股票基本信息
+            stock = session.query(StockBasic).filter_by(ts_code=ts_code).first()
+            if not stock:
+                return jsonify({'code': -1, 'message': '股票不存在'}), 404
+            
+            industry = stock.industry
+            if not industry:
+                return jsonify({'code': -1, 'message': '该股票暂无行业信息'}), 404
+            
+            # 获取同行业所有股票
+            industry_stocks = session.query(StockBasic).filter_by(industry=industry).all()
+            industry_ts_codes = [s.ts_code for s in industry_stocks]
+            
+            # 获取最新交易日期
+            latest_date = session.query(func.max(StockDaily.trade_date)).scalar()
+            if not latest_date:
+                return jsonify({'code': -1, 'message': '暂无交易数据'}), 404
+            
+            # 获取同行业股票的日线数据
+            industry_daily = session.query(StockDaily).filter(
+                and_(
+                    StockDaily.ts_code.in_(industry_ts_codes),
+                    StockDaily.trade_date == latest_date
+                )
+            ).all()
+            
+            # 计算板块统计数据
+            if not industry_daily:
+                return jsonify({'code': -1, 'message': '暂无板块数据'}), 404
+            
+            # 获取当前股票的数据
+            current_stock_daily = next((d for d in industry_daily if d.ts_code == ts_code), None)
+            
+            # 计算板块涨跌幅分布
+            pct_chg_list = [float(d.pct_chg) for d in industry_daily if d.pct_chg is not None]
+            rise_count = sum(1 for p in pct_chg_list if p > 0)
+            fall_count = sum(1 for p in pct_chg_list if p < 0)
+            flat_count = sum(1 for p in pct_chg_list if p == 0)
+            
+            # 计算板块平均涨跌幅
+            avg_pct_chg = sum(pct_chg_list) / len(pct_chg_list) if pct_chg_list else 0
+            
+            # 计算板块总成交额
+            total_amount = sum(float(d.amount or 0) for d in industry_daily) / 100000000  # 转换为亿元
+            
+            # 获取板块内股票排名（按涨跌幅）
+            stock_rankings = []
+            for daily in industry_daily:
+                stock_info = next((s for s in industry_stocks if s.ts_code == daily.ts_code), None)
+                if stock_info and daily.pct_chg is not None:
+                    stock_rankings.append({
+                        'ts_code': daily.ts_code,
+                        'name': stock_info.name,
+                        'symbol': stock_info.symbol,
+                        'pct_chg': float(daily.pct_chg),
+                        'close': float(daily.close) if daily.close else None,
+                        'amount': float(daily.amount or 0) / 100000000  # 转换为亿元
+                    })
+            
+            # 按涨跌幅排序
+            stock_rankings.sort(key=lambda x: x['pct_chg'], reverse=True)
+            
+            # 找到当前股票的排名
+            current_rank = next((i + 1 for i, s in enumerate(stock_rankings) if s['ts_code'] == ts_code), None)
+            
+            result = {
+                'industry': industry,
+                'stock_count': len(industry_stocks),
+                'trade_date': latest_date,
+                'current_stock': {
+                    'ts_code': ts_code,
+                    'name': stock.name,
+                    'symbol': stock.symbol,
+                    'pct_chg': float(current_stock_daily.pct_chg) if current_stock_daily and current_stock_daily.pct_chg else None,
+                    'close': float(current_stock_daily.close) if current_stock_daily and current_stock_daily.close else None,
+                    'rank': current_rank
+                },
+                'sector_stats': {
+                    'avg_pct_chg': round(avg_pct_chg, 2),
+                    'rise_count': rise_count,
+                    'fall_count': fall_count,
+                    'flat_count': flat_count,
+                    'total_amount': round(total_amount, 2)
+                },
+                'stock_rankings': stock_rankings[:20]  # 只返回前20名
+            }
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取股票板块分析失败: {e}", exc_info=True)
         return jsonify({'code': -1, 'message': str(e)}), 500
 
 
@@ -887,7 +1525,7 @@ def get_strategy_selections():
             result = []
             for selection in selections:
                 try:
-                stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
+                    stock = session.query(StockBasic).filter_by(ts_code=selection.ts_code).first()
                     if not stock:
                         logger.warning(f"未找到股票基本信息: {selection.ts_code}")
                         continue
@@ -959,6 +1597,463 @@ def get_strategy_dates():
         finally:
             session.close()
     except Exception as e:
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/database/schema', methods=['GET'])
+def get_database_schema():
+    """获取数据库所有表的结构信息"""
+    try:
+        from sqlalchemy import inspect, text
+        session = get_session()
+        engine = session.bind
+        
+        try:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            result = []
+            for table_name in sorted(tables):
+                try:
+                    # 获取表的所有列信息
+                    columns = inspector.get_columns(table_name)
+                    
+                    # 获取表的主键
+                    pk_constraint = inspector.get_pk_constraint(table_name)
+                    primary_keys = pk_constraint.get('constrained_columns', []) if pk_constraint else []
+                    
+                    # 获取表的索引
+                    indexes = inspector.get_indexes(table_name)
+                    
+                    # 获取表的注释
+                    table_comment = None
+                    try:
+                        # MySQL获取表注释
+                        result_obj = session.execute(text(f"SHOW TABLE STATUS LIKE '{table_name}'"))
+                        row = result_obj.fetchone()
+                        if row:
+                            # MySQL的SHOW TABLE STATUS返回的注释在Comment字段
+                            table_comment = row[10] if len(row) > 10 else None
+                    except:
+                        pass
+                    
+                    # 格式化列信息
+                    columns_info = []
+                    for col in columns:
+                        col_info = {
+                            'name': col['name'],
+                            'type': str(col['type']),
+                            'nullable': col.get('nullable', True),
+                            'default': str(col.get('default', '')) if col.get('default') is not None else None,
+                            'comment': col.get('comment', ''),
+                            'primary_key': col['name'] in primary_keys
+                        }
+                        columns_info.append(col_info)
+                    
+                    # 格式化索引信息
+                    indexes_info = []
+                    for idx in indexes:
+                        idx_info = {
+                            'name': idx['name'],
+                            'columns': idx['column_names'],
+                            'unique': idx.get('unique', False)
+                        }
+                        indexes_info.append(idx_info)
+                    
+                    result.append({
+                        'table_name': table_name,
+                        'comment': table_comment or '',
+                        'columns': columns_info,
+                        'primary_keys': primary_keys,
+                        'indexes': indexes_info,
+                        'column_count': len(columns_info),
+                        'index_count': len(indexes_info)
+                    })
+                except Exception as e:
+                    logger.warning(f"获取表 {table_name} 结构失败: {e}")
+                    continue
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'tables': result,
+                    'total_tables': len(result)
+                }
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取数据库结构失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/database/table/<table_name>/preview', methods=['GET'])
+def get_table_preview(table_name):
+    """获取表数据预览（前10条）"""
+    try:
+        from sqlalchemy import inspect, text
+        session = get_session()
+        engine = session.bind
+        
+        try:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            # 检查表是否存在
+            if table_name not in tables:
+                return jsonify({'code': -1, 'message': f'表 {table_name} 不存在'}), 404
+            
+            # 获取表的前10条数据
+            # 使用原始SQL查询，避免SQL注入风险（表名已经验证存在）
+            # 注意：这里假设表名是安全的（已经通过inspector验证）
+            query = text(f"SELECT * FROM `{table_name}` LIMIT 10")
+            result = session.execute(query)
+            
+            # 获取列名
+            columns = list(result.keys())
+            
+            # 获取数据行
+            rows = []
+            for row in result:
+                # 将行转换为字典
+                row_dict = {}
+                for i, col in enumerate(columns):
+                    value = row[i]  # 使用索引访问
+                    # 处理特殊类型
+                    if isinstance(value, datetime):
+                        value = value.strftime('%Y-%m-%d %H:%M:%S')
+                    elif value is None:
+                        value = None
+                    else:
+                        value = str(value)
+                    row_dict[col] = value
+                rows.append(row_dict)
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'table_name': table_name,
+                    'columns': list(columns),
+                    'rows': rows,
+                    'count': len(rows)
+                }
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取表 {table_name} 数据预览失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices', methods=['GET'])
+def get_indices():
+    """获取指数列表（支持筛选）"""
+    try:
+        # 获取查询参数
+        keyword = request.args.get('keyword', '')
+        market = request.args.get('market', '')
+        category = request.args.get('category', '')
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 200, type=int)
+        
+        logger.info(f"查询指数列表 - 关键词: {keyword}, 市场: {market}, 类别: {category}, 页码: {page}")
+        
+        session = get_session()
+        try:
+            # 构建查询
+            query = session.query(IndexBasic)
+            
+            # 关键词搜索
+            if keyword:
+                query = query.filter(
+                    or_(
+                        IndexBasic.ts_code.like(f'%{keyword}%'),
+                        IndexBasic.name.like(f'%{keyword}%'),
+                        IndexBasic.fullname.like(f'%{keyword}%')
+                    )
+                )
+            
+            # 市场筛选
+            if market:
+                query = query.filter(IndexBasic.market == market)
+            
+            # 类别筛选
+            if category:
+                query = query.filter(IndexBasic.category == category)
+            
+            # 获取总数
+            total = query.count()
+            
+            # 分页
+            indices = query.order_by(IndexBasic.ts_code).offset((page - 1) * per_page).limit(per_page).all()
+            
+            # 获取最新的日线数据（用于显示最新点位、涨跌幅等）
+            latest_date = session.query(func.max(IndexDaily.trade_date)).scalar()
+            
+            result = []
+            for index in indices:
+                index_data = {
+                    'ts_code': index.ts_code,
+                    'name': index.name,
+                    'fullname': index.fullname,
+                    'market': index.market,
+                    'publisher': index.publisher,
+                    'index_type': index.index_type,
+                    'category': index.category,
+                    'base_date': index.base_date,
+                    'base_point': float(index.base_point) if index.base_point else None,
+                    'list_date': index.list_date,
+                    'weight_rule': index.weight_rule,
+                    'desc': index.desc,
+                    'exp_date': index.exp_date,
+                    'close': None,
+                    'pct_chg': None,
+                    'pe': None,
+                    'pb': None,
+                    'total_mv': None,
+                    'float_mv': None,
+                    'turnover_rate': None
+                }
+                
+                # 获取最新的日线数据
+                if latest_date:
+                    daily = session.query(IndexDaily).filter(
+                        IndexDaily.ts_code == index.ts_code,
+                        IndexDaily.trade_date == latest_date
+                    ).first()
+                    
+                    if daily:
+                        index_data['close'] = float(daily.close) if daily.close else None
+                        index_data['pct_chg'] = float(daily.pct_chg) if daily.pct_chg else None
+                        index_data['pe'] = float(daily.pe) if daily.pe else None
+                        index_data['pb'] = float(daily.pb) if daily.pb else None
+                        index_data['total_mv'] = float(daily.total_mv) if daily.total_mv else None
+                        index_data['float_mv'] = float(daily.float_mv) if daily.float_mv else None
+                        index_data['turnover_rate'] = float(daily.turnover_rate) if daily.turnover_rate else None
+                
+                result.append(index_data)
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'indices': result,
+                    'total': total,
+                    'page': page,
+                    'per_page': per_page
+                }
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数列表失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices/<ts_code>', methods=['GET'])
+def get_index_detail(ts_code):
+    """获取指数详情"""
+    try:
+        session = get_session()
+        try:
+            index = session.query(IndexBasic).filter_by(ts_code=ts_code).first()
+            
+            if not index:
+                return jsonify({'code': -1, 'message': '指数不存在'}), 404
+            
+            result = {
+                'ts_code': index.ts_code,
+                'name': index.name,
+                'fullname': index.fullname,
+                'market': index.market,
+                'publisher': index.publisher,
+                'index_type': index.index_type,
+                'category': index.category,
+                'base_date': index.base_date,
+                'base_point': float(index.base_point) if index.base_point else None,
+                'list_date': index.list_date,
+                'weight_rule': index.weight_rule,
+                'desc': index.desc,
+                'exp_date': index.exp_date
+            }
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数详情失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices/<ts_code>/daily', methods=['GET'])
+def get_index_daily(ts_code):
+    """获取指数日线数据"""
+    try:
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        limit = request.args.get('limit', 100, type=int)
+        
+        session = get_session()
+        try:
+            query = session.query(IndexDaily).filter_by(ts_code=ts_code)
+            
+            if start_date:
+                query = query.filter(IndexDaily.trade_date >= start_date)
+            if end_date:
+                query = query.filter(IndexDaily.trade_date <= end_date)
+            
+            daily_data = query.order_by(IndexDaily.trade_date.desc()).limit(limit).all()
+            
+            result = []
+            for data in daily_data:
+                result.append({
+                    'trade_date': data.trade_date,
+                    'open': float(data.open) if data.open else None,
+                    'high': float(data.high) if data.high else None,
+                    'low': float(data.low) if data.low else None,
+                    'close': float(data.close) if data.close else None,
+                    'pre_close': float(data.pre_close) if data.pre_close else None,
+                    'change': float(data.change) if data.change else None,
+                    'pct_chg': float(data.pct_chg) if data.pct_chg else None,
+                    'vol': float(data.vol) if data.vol else None,
+                    'amount': float(data.amount) if data.amount else None,
+                    'total_mv': float(data.total_mv) if data.total_mv else None,
+                    'float_mv': float(data.float_mv) if data.float_mv else None,
+                    'turnover_rate': float(data.turnover_rate) if data.turnover_rate else None,
+                    'pe': float(data.pe) if data.pe else None,
+                    'pb': float(data.pb) if data.pb else None
+                })
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数日线数据失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices/<ts_code>/weekly', methods=['GET'])
+def get_index_weekly(ts_code):
+    """获取指数周线数据"""
+    try:
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        limit = request.args.get('limit', 100, type=int)
+        
+        session = get_session()
+        try:
+            query = session.query(IndexWeekly).filter_by(ts_code=ts_code)
+            
+            if start_date:
+                query = query.filter(IndexWeekly.trade_date >= start_date)
+            if end_date:
+                query = query.filter(IndexWeekly.trade_date <= end_date)
+            
+            weekly_data = query.order_by(IndexWeekly.trade_date.desc()).limit(limit).all()
+            
+            result = []
+            for data in weekly_data:
+                result.append({
+                    'trade_date': data.trade_date,
+                    'open': float(data.open) if data.open else None,
+                    'high': float(data.high) if data.high else None,
+                    'low': float(data.low) if data.low else None,
+                    'close': float(data.close) if data.close else None,
+                    'pre_close': float(data.pre_close) if data.pre_close else None,
+                    'change': float(data.change) if data.change else None,
+                    'pct_chg': float(data.pct_chg) if data.pct_chg else None,
+                    'vol': float(data.vol) if data.vol else None,
+                    'amount': float(data.amount) if data.amount else None
+                })
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数周线数据失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices/<ts_code>/monthly', methods=['GET'])
+def get_index_monthly(ts_code):
+    """获取指数月线数据"""
+    try:
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        limit = request.args.get('limit', 100, type=int)
+        
+        session = get_session()
+        try:
+            query = session.query(IndexMonthly).filter_by(ts_code=ts_code)
+            
+            if start_date:
+                query = query.filter(IndexMonthly.trade_date >= start_date)
+            if end_date:
+                query = query.filter(IndexMonthly.trade_date <= end_date)
+            
+            monthly_data = query.order_by(IndexMonthly.trade_date.desc()).limit(limit).all()
+            
+            result = []
+            for data in monthly_data:
+                result.append({
+                    'trade_date': data.trade_date,
+                    'open': float(data.open) if data.open else None,
+                    'high': float(data.high) if data.high else None,
+                    'low': float(data.low) if data.low else None,
+                    'close': float(data.close) if data.close else None,
+                    'pre_close': float(data.pre_close) if data.pre_close else None,
+                    'change': float(data.change) if data.change else None,
+                    'pct_chg': float(data.pct_chg) if data.pct_chg else None,
+                    'vol': float(data.vol) if data.vol else None,
+                    'amount': float(data.amount) if data.amount else None
+                })
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数月线数据失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/indices/<ts_code>/weight', methods=['GET'])
+def get_index_weight(ts_code):
+    """获取指数成分股权重"""
+    try:
+        trade_date = request.args.get('trade_date', '')
+        limit = request.args.get('limit', 100, type=int)
+        
+        session = get_session()
+        try:
+            query = session.query(IndexWeight).filter_by(index_code=ts_code)
+            
+            if trade_date:
+                query = query.filter(IndexWeight.trade_date == trade_date)
+            else:
+                # 如果没有指定日期，获取最新的日期
+                latest_date = session.query(func.max(IndexWeight.trade_date)).filter(
+                    IndexWeight.index_code == ts_code
+                ).scalar()
+                if latest_date:
+                    query = query.filter(IndexWeight.trade_date == latest_date)
+            
+            weights = query.order_by(IndexWeight.weight.desc()).limit(limit).all()
+            
+            result = []
+            for weight in weights:
+                result.append({
+                    'con_code': weight.con_code,
+                    'trade_date': weight.trade_date,
+                    'weight': float(weight.weight) if weight.weight else None
+                })
+            
+            return jsonify({'code': 0, 'message': 'success', 'data': result})
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取指数成分股权重失败: {e}", exc_info=True)
         return jsonify({'code': -1, 'message': str(e)}), 500
 
 

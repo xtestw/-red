@@ -17,7 +17,11 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   config => {
-    // 可以在这里添加token等
+    // 添加token到请求头
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   error => {
@@ -38,6 +42,18 @@ api.interceptors.response.use(
     }
   },
   error => {
+    // 处理401未授权错误
+    if (error.response?.status === 401) {
+      // token过期或无效，清除本地token
+      localStorage.removeItem('token')
+      localStorage.removeItem('refreshToken')
+      // 可以在这里触发重新登录
+      if (window.location.pathname !== '/login') {
+        // 跳转到登录页面或显示登录提示
+        console.warn('未授权，请重新登录')
+      }
+    }
+    
     // 网络错误或API不存在时不显示错误消息
     const msg = error.response?.data?.message || error.message || '网络错误'
     if (error.response?.status === 404) {
@@ -83,6 +99,9 @@ export const stockAPI = {
     return api.get(`/stocks/${tsCode}/${endpoint}`, { params })
   },
   
+  // 获取板块分析数据
+  getSectorAnalysis: (tsCode) => api.get(`/stocks/${tsCode}/sector`),
+  
   // 股票对比
   compare: (tsCodes) => api.post('/stocks/compare', { ts_codes: tsCodes }),
   
@@ -98,15 +117,15 @@ export const stockAPI = {
  */
 export const favoriteAPI = {
   // 获取收藏列表
-  getFavorites: (userId = 'default') => api.get('/favorites', { params: { user_id: userId } }),
+  getFavorites: () => api.get('/favorites'),
   
   // 添加收藏
-  addFavorite: (tsCode, userId = 'default', notes = '') => 
-    api.post('/favorites', { ts_code: tsCode, user_id: userId, notes }),
+  addFavorite: (tsCode, notes = '') => 
+    api.post('/favorites', { ts_code: tsCode, notes }),
   
   // 取消收藏
-  removeFavorite: (tsCode, userId = 'default') => 
-    api.delete(`/favorites/${tsCode}`, { params: { user_id: userId } })
+  removeFavorite: (tsCode) => 
+    api.delete(`/favorites/${tsCode}`)
 }
 
 /**
@@ -182,6 +201,60 @@ export const strategyAPI = {
   
   // 获取有选股结果的日期列表
   getDates: (params) => api.get('/strategy/dates', { params })
+}
+
+/**
+ * 认证相关API
+ */
+export const authAPI = {
+  // 获取微信登录URL
+  getWechatLoginUrl: () => api.get('/auth/wechat/login'),
+  
+  // 检查登录状态
+  checkLoginStatus: (state) => api.get(`/auth/wechat/status/${state}`),
+  
+  // 获取当前用户信息
+  getUserInfo: () => api.get('/auth/user'),
+  
+  // 退出登录
+  logout: () => api.post('/auth/logout'),
+  
+  // 刷新token
+  refreshToken: (refreshToken) => api.post('/auth/refresh', { refresh_token: refreshToken })
+}
+
+/**
+ * 数据库相关API
+ */
+export const databaseAPI = {
+  // 获取数据库表结构
+  getSchema: () => api.get('/database/schema'),
+  
+  // 获取表数据预览
+  getTablePreview: (tableName) => api.get(`/database/table/${tableName}/preview`)
+}
+
+/**
+ * 指数相关API
+ */
+export const indexAPI = {
+  // 获取指数列表
+  getIndices: (params) => api.get('/indices', { params }),
+  
+  // 获取指数详情
+  getIndexDetail: (tsCode) => api.get(`/indices/${tsCode}`),
+  
+  // 获取指数日线数据
+  getIndexDaily: (tsCode, params) => api.get(`/indices/${tsCode}/daily`, { params }),
+  
+  // 获取指数周线数据
+  getIndexWeekly: (tsCode, params) => api.get(`/indices/${tsCode}/weekly`, { params }),
+  
+  // 获取指数月线数据
+  getIndexMonthly: (tsCode, params) => api.get(`/indices/${tsCode}/monthly`, { params }),
+  
+  // 获取指数成分股权重
+  getIndexWeight: (tsCode, params) => api.get(`/indices/${tsCode}/weight`, { params })
 }
 
 export default api

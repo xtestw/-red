@@ -54,14 +54,92 @@ const loading = ref(false)
 const compareData = ref([])
 
 const columns = [
-  { title: '股票代码', dataIndex: 'symbol', key: 'symbol', width: 120 },
-  { title: '股票名称', dataIndex: 'name', key: 'name', width: 150 },
-  { title: '行业', dataIndex: 'industry', key: 'industry', width: 150 },
-  { title: '收盘价', dataIndex: 'close', key: 'close', width: 100, align: 'right' },
-  { title: '涨跌幅', key: 'pct_chg', width: 100, align: 'right' },
-  { title: '总市值（万元）', key: 'total_mv', width: 150, align: 'right' },
-  { title: '市盈率', key: 'pe', width: 100, align: 'right' },
-  { title: '市净率', key: 'pb', width: 100, align: 'right' }
+  { 
+    title: '股票代码', 
+    dataIndex: 'symbol', 
+    key: 'symbol', 
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.symbol || !b.symbol) return 0
+      return a.symbol.localeCompare(b.symbol)
+    }
+  },
+  { 
+    title: '股票名称', 
+    dataIndex: 'name', 
+    key: 'name', 
+    width: 150,
+    sorter: (a, b) => {
+      if (!a.name || !b.name) return 0
+      return a.name.localeCompare(b.name)
+    }
+  },
+  { 
+    title: '行业', 
+    dataIndex: 'industry', 
+    key: 'industry', 
+    width: 150,
+    sorter: (a, b) => {
+      if (!a.industry || !b.industry) return 0
+      return (a.industry || '').localeCompare(b.industry || '')
+    }
+  },
+  { 
+    title: '收盘价', 
+    dataIndex: 'close', 
+    key: 'close', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.close || 0
+      const bVal = b.close || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '涨跌幅', 
+    key: 'pct_chg', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pct_chg || 0
+      const bVal = b.pct_chg || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '总市值（万元）', 
+    key: 'total_mv', 
+    width: 150, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.total_mv || 0
+      const bVal = b.total_mv || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '市盈率', 
+    key: 'pe', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pe || 0
+      const bVal = b.pe || 0
+      return aVal - bVal
+    }
+  },
+  { 
+    title: '市净率', 
+    key: 'pb', 
+    width: 100, 
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pb || 0
+      const bVal = b.pb || 0
+      return aVal - bVal
+    }
+  }
 ]
 
 const formatNumber = (num) => {

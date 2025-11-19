@@ -71,6 +71,29 @@
                   {{ shIndex?.change ? (shIndex.change > 0 ? '+' : '') + shIndex.change.toFixed(2) : '--' }}
                 </span>
               </div>
+              <div v-if="shIndex?.trade_date" class="index-date">
+                日期：{{ formatDate(shIndex.trade_date) }}
+              </div>
+              <div class="index-detail" v-if="shIndex">
+                <a-row :gutter="8" style="margin-top: 12px; font-size: 12px;">
+                  <a-col :span="12">
+                    <span style="color: #999;">开：</span>
+                    <span>{{ shIndex.open ? shIndex.open.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12">
+                    <span style="color: #999;">高：</span>
+                    <span>{{ shIndex.high ? shIndex.high.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">低：</span>
+                    <span>{{ shIndex.low ? shIndex.low.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">昨收：</span>
+                    <span>{{ shIndex.pre_close ? shIndex.pre_close.toFixed(2) : '--' }}</span>
+                  </a-col>
+                </a-row>
+              </div>
             </a-card>
           </a-col>
 
@@ -92,6 +115,29 @@
                   {{ szIndex?.change ? (szIndex.change > 0 ? '+' : '') + szIndex.change.toFixed(2) : '--' }}
                 </span>
               </div>
+              <div v-if="szIndex?.trade_date" class="index-date">
+                日期：{{ formatDate(szIndex.trade_date) }}
+              </div>
+              <div class="index-detail" v-if="szIndex">
+                <a-row :gutter="8" style="margin-top: 12px; font-size: 12px;">
+                  <a-col :span="12">
+                    <span style="color: #999;">开：</span>
+                    <span>{{ szIndex.open ? szIndex.open.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12">
+                    <span style="color: #999;">高：</span>
+                    <span>{{ szIndex.high ? szIndex.high.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">低：</span>
+                    <span>{{ szIndex.low ? szIndex.low.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">昨收：</span>
+                    <span>{{ szIndex.pre_close ? szIndex.pre_close.toFixed(2) : '--' }}</span>
+                  </a-col>
+                </a-row>
+              </div>
             </a-card>
           </a-col>
 
@@ -112,6 +158,29 @@
                 <span style="margin-left: 16px; color: #999;">
                   {{ cybIndex?.change ? (cybIndex.change > 0 ? '+' : '') + cybIndex.change.toFixed(2) : '--' }}
                 </span>
+              </div>
+              <div v-if="cybIndex?.trade_date" class="index-date">
+                日期：{{ formatDate(cybIndex.trade_date) }}
+              </div>
+              <div class="index-detail" v-if="cybIndex">
+                <a-row :gutter="8" style="margin-top: 12px; font-size: 12px;">
+                  <a-col :span="12">
+                    <span style="color: #999;">开：</span>
+                    <span>{{ cybIndex.open ? cybIndex.open.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12">
+                    <span style="color: #999;">高：</span>
+                    <span>{{ cybIndex.high ? cybIndex.high.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">低：</span>
+                    <span>{{ cybIndex.low ? cybIndex.low.toFixed(2) : '--' }}</span>
+                  </a-col>
+                  <a-col :span="12" style="margin-top: 4px;">
+                    <span style="color: #999;">昨收：</span>
+                    <span>{{ cybIndex.pre_close ? cybIndex.pre_close.toFixed(2) : '--' }}</span>
+                  </a-col>
+                </a-row>
               </div>
             </a-card>
           </a-col>
@@ -204,6 +273,15 @@ const sectorColumns = [
 const getIndexClass = (pctChg) => {
   if (!pctChg) return ''
   return pctChg > 0 ? 'positive' : pctChg < 0 ? 'negative' : ''
+}
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  // 将 20241118 格式转换为 2024-11-18
+  if (dateStr.length === 8) {
+    return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`
+  }
+  return dateStr
 }
 
 const loadMarketData = async () => {
@@ -348,6 +426,19 @@ onMounted(() => {
 
 .index-change {
   font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.index-date {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  margin-top: 8px;
+}
+
+.index-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .positive {

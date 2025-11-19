@@ -24,6 +24,9 @@
         <a-tab-pane key="indicators" tab="技术指标">
           <TechnicalIndicators :ts-code="tsCode" />
         </a-tab-pane>
+        <a-tab-pane key="sector" tab="板块分析">
+          <SectorAnalysis :ts-code="tsCode" />
+        </a-tab-pane>
       </a-tabs>
       
       <a-divider />
@@ -50,6 +53,7 @@ import { DownloadOutlined, FileExcelOutlined } from '@ant-design/icons-vue'
 import KlineChart from './KlineChart.vue'
 import MoneyflowChart from './MoneyflowChart.vue'
 import TechnicalIndicators from './TechnicalIndicators.vue'
+import SectorAnalysis from './SectorAnalysis.vue'
 
 const props = defineProps({
   open: Boolean,

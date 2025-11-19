@@ -20,12 +20,20 @@ sys.path.insert(0, project_root)
 from data_fetcher import (
     fetch_stock_basic,
     fetch_stock_company,
+    fetch_stock_premarket,
     fetch_stock_daily,
     fetch_stock_weekly,
     fetch_stock_monthly,
     fetch_stock_moneyflow,
     fetch_stock_indicator,
-    fetch_ipo_stocks
+    fetch_ipo_stocks,
+    fetch_stock_managers,
+    fetch_index_basic,
+    fetch_index_daily,
+    fetch_index_weekly,
+    fetch_index_monthly,
+    fetch_index_weight,
+    fetch_index_dailybasic
 )
 from volume_strategy import save_volume_strategy_selections
 
@@ -48,6 +56,112 @@ def job_fetch_stock_company():
         print(f"[{datetime.now()}] 完成：更新上市公司详细信息")
     except Exception as e:
         print(f"[{datetime.now()}] 错误：更新上市公司详细信息失败 - {e}")
+
+
+def job_fetch_stock_premarket():
+    """每日更新盘前股本信息（交易日开盘前执行，建议在9:00执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新盘前股本信息")
+    try:
+        fetch_stock_premarket()
+        print(f"[{datetime.now()}] 完成：更新盘前股本信息")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新盘前股本信息失败 - {e}")
+
+
+def job_fetch_stock_managers():
+    """每周更新上市公司管理层信息（每周日22:00执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新上市公司管理层信息")
+    try:
+        fetch_stock_managers()
+        print(f"[{datetime.now()}] 完成：更新上市公司管理层信息")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新上市公司管理层信息失败 - {e}")
+
+
+def job_fetch_index_basic():
+    """每周更新指数基本信息（每周一8:00执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数基本信息")
+    try:
+        fetch_index_basic()
+        print(f"[{datetime.now()}] 完成：更新指数基本信息")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数基本信息失败 - {e}")
+
+
+def job_fetch_index_daily_data(all_data=False):
+    """每日更新指数日线数据（交易日15:30执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数日线数据")
+    try:
+        from datetime import timedelta
+        end_date = datetime.now().strftime('%Y%m%d')
+        if all_data:
+            start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y%m%d')
+        else:
+            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+        fetch_index_daily(start_date=start_date, end_date=end_date)
+        print(f"[{datetime.now()}] 完成：更新指数日线数据")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数日线数据失败 - {e}")
+
+
+def job_fetch_index_weekly_data(all_data=False):
+    """每周更新指数周线数据（每周日20:00执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数周线数据")
+    try:
+        from datetime import timedelta
+        end_date = datetime.now().strftime('%Y%m%d')
+        if all_data:
+            start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y%m%d')
+        else:
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+        fetch_index_weekly(start_date=start_date, end_date=end_date)
+        print(f"[{datetime.now()}] 完成：更新指数周线数据")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数周线数据失败 - {e}")
+
+
+def job_fetch_index_monthly_data(all_data=False):
+    """每月更新指数月线数据（每月1日20:00执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数月线数据")
+    try:
+        from datetime import timedelta
+        end_date = datetime.now().strftime('%Y%m%d')
+        if all_data:
+            start_date = (datetime.now() - timedelta(days=7300)).strftime('%Y%m%d')
+        else:
+            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+        fetch_index_monthly(start_date=start_date, end_date=end_date)
+        print(f"[{datetime.now()}] 完成：更新指数月线数据")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数月线数据失败 - {e}")
+
+
+def job_fetch_index_weight():
+    """每半月更新指数成分股权重（每月1日和15日15:30执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数成分股权重")
+    try:
+        # 获取当日数据
+        trade_date = datetime.now().strftime('%Y%m%d')
+        fetch_index_weight(trade_date=trade_date)
+        print(f"[{datetime.now()}] 完成：更新指数成分股权重")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数成分股权重失败 - {e}")
+
+
+def job_fetch_index_dailybasic(all_data=False):
+    """每日更新指数每日指标（交易日15:30执行）"""
+    print(f"[{datetime.now()}] 开始执行：更新指数每日指标")
+    try:
+        from datetime import timedelta
+        end_date = datetime.now().strftime('%Y%m%d')
+        if all_data:
+            start_date = (datetime.now() - timedelta(days=3650)).strftime('%Y%m%d')
+        else:
+            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+        fetch_index_dailybasic(start_date=start_date, end_date=end_date)
+        print(f"[{datetime.now()}] 完成：更新指数每日指标")
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：更新指数每日指标失败 - {e}")
 
 
 def job_fetch_daily_data(all_data=False):
@@ -93,7 +207,7 @@ def job_fetch_weekly_data(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近10年周线数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近30天的数据
-        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近30天周线数据（{start_date} 至 {end_date}）")
         
         fetch_stock_weekly(start_date=start_date, end_date=end_date)
@@ -119,7 +233,7 @@ def job_fetch_monthly_data(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近20年月线数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近90天的数据
-        start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
+            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近90天月线数据（{start_date} 至 {end_date}）")
         
         fetch_stock_monthly(start_date=start_date, end_date=end_date)
@@ -145,7 +259,7 @@ def job_fetch_moneyflow(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近3年资金流向数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近5天的数据
-        start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近5天资金流向数据（{start_date} 至 {end_date}）")
         
         fetch_stock_moneyflow(start_date=start_date, end_date=end_date)
@@ -171,7 +285,7 @@ def job_fetch_indicator(all_data=False):
             print(f"[{datetime.now()}] 使用全量模式：获取最近3年指标数据（{start_date} 至 {end_date}）")
         else:
             # 只获取最近5天的数据
-        start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
+            start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近5天指标数据（{start_date} 至 {end_date}）")
         
         fetch_stock_indicator(start_date=start_date, end_date=end_date)
@@ -282,6 +396,8 @@ def run_all_jobs_now(all_data=False, parallel=True):
     jobs = [
         ("更新股票基本信息", job_fetch_stock_basic, []),
         ("更新上市公司详细信息", job_fetch_stock_company, []),
+        ("更新盘前股本信息", job_fetch_stock_premarket, []),
+        ("更新上市公司管理层信息", job_fetch_stock_managers, []),
         ("更新日线数据", job_fetch_daily_data, [all_data]),
         ("更新资金流向数据", job_fetch_moneyflow, [all_data]),
         ("更新股票指标数据", job_fetch_indicator, [all_data]),
@@ -443,6 +559,24 @@ def start_scheduler(run_now=False, all_data=False, parallel=True):
         replace_existing=True
     )
     
+    # 每周日22:00执行（更新上市公司管理层信息）
+    scheduler.add_job(
+        job_fetch_stock_managers,
+        trigger=CronTrigger(day_of_week='sun', hour=22, minute=0),
+        id='fetch_stock_managers',
+        name='更新上市公司管理层信息',
+        replace_existing=True
+    )
+    
+    # 每日9:00执行（更新盘前股本信息，在开盘前获取当日股本和涨跌停价格）
+    scheduler.add_job(
+        job_fetch_stock_premarket,
+        trigger=CronTrigger(hour=9, minute=0),
+        id='fetch_stock_premarket',
+        name='更新盘前股本信息',
+        replace_existing=True
+    )
+    
     scheduler.add_job(
         job_fetch_daily_data,
         trigger=CronTrigger(hour=15, minute=30),
@@ -499,6 +633,60 @@ def start_scheduler(run_now=False, all_data=False, parallel=True):
         trigger=CronTrigger(day=1, hour=20, minute=0),
         id='fetch_monthly_data',
         name='更新月线数据',
+        replace_existing=True
+    )
+    
+    # 每周一8:00执行（更新指数基本信息）
+    scheduler.add_job(
+        job_fetch_index_basic,
+        trigger=CronTrigger(day_of_week='mon', hour=8, minute=0),
+        id='fetch_index_basic',
+        name='更新指数基本信息',
+        replace_existing=True
+    )
+    
+    # 每日15:30执行（更新指数日线数据）
+    scheduler.add_job(
+        job_fetch_index_daily_data,
+        trigger=CronTrigger(hour=15, minute=30),
+        id='fetch_index_daily_data',
+        name='更新指数日线数据',
+        replace_existing=True
+    )
+    
+    # 每周日20:00执行（更新指数周线数据）
+    scheduler.add_job(
+        job_fetch_index_weekly_data,
+        trigger=CronTrigger(day_of_week='sun', hour=20, minute=0),
+        id='fetch_index_weekly_data',
+        name='更新指数周线数据',
+        replace_existing=True
+    )
+    
+    # 每月1日20:00执行（更新指数月线数据）
+    scheduler.add_job(
+        job_fetch_index_monthly_data,
+        trigger=CronTrigger(day=1, hour=20, minute=0),
+        id='fetch_index_monthly_data',
+        name='更新指数月线数据',
+        replace_existing=True
+    )
+    
+    # 每月1日和15日15:30执行（更新指数成分股权重，半月执行一次）
+    scheduler.add_job(
+        job_fetch_index_weight,
+        trigger=CronTrigger(day='1,15', hour=15, minute=30),
+        id='fetch_index_weight',
+        name='更新指数成分股权重',
+        replace_existing=True
+    )
+    
+    # 每日15:30执行（更新指数每日指标）
+    scheduler.add_job(
+        job_fetch_index_dailybasic,
+        trigger=CronTrigger(hour=15, minute=30),
+        id='fetch_index_dailybasic',
+        name='更新指数每日指标',
         replace_existing=True
     )
     

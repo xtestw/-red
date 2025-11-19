@@ -125,10 +125,33 @@ SEO_SITE_URL = _seo_config['site_url']
 SEO_SITE_NAME = _seo_config['site_name']
 SEO_SITE_DESCRIPTION = _seo_config['site_description']
 
+# 微信配置（使用函数获取，支持热重载）
+def get_wechat_config():
+    """获取微信配置（支持热重载）"""
+    config = get_config()
+    wechat_config = config.get('wechat', {})
+    return {
+        'app_id': wechat_config.get('app_id', ''),
+        'app_secret': wechat_config.get('app_secret', ''),
+        'redirect_uri': wechat_config.get('redirect_uri', '')
+    }
+
+# JWT配置（使用函数获取，支持热重载）
+def get_jwt_config():
+    """获取JWT配置（支持热重载）"""
+    config = get_config()
+    jwt_config = config.get('jwt', {})
+    return {
+        'secret_key': jwt_config.get('secret_key', 'change_me_in_production'),
+        'expires_in': int(jwt_config.get('expires_in', 86400)),  # 默认24小时
+        'refresh_expires_in': int(jwt_config.get('refresh_expires_in', 604800))  # 默认7天
+    }
+
 
 # 注意：以下变量在模块加载时初始化，如需支持热重载，请使用对应的get_*函数
 # TUSHARE_TOKEN - 使用 get_tushare_token() 获取最新值
 # MYSQL_CONFIG - 使用 get_mysql_config() 获取最新值  
 # FLASK_HOST, FLASK_PORT, FLASK_DEBUG - 使用 get_flask_config() 获取最新值
 # SEO_SITE_URL, SEO_SITE_NAME, SEO_SITE_DESCRIPTION - 使用 get_seo_config() 获取最新值
+# 微信和JWT配置 - 使用 get_wechat_config() 和 get_jwt_config() 获取最新值
 

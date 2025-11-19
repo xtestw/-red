@@ -22,6 +22,20 @@
                     {{ date }}
                   </a-select-option>
                 </a-select>
+                <span>时间段：</span>
+                <a-select
+                  v-model:value="selectedPeriod"
+                  style="width: 120px"
+                  placeholder="选择时间段"
+                  allowClear
+                  @change="handleFilterChange"
+                  size="small"
+                >
+                  <a-select-option value="240">240天最高</a-select-option>
+                  <a-select-option value="120">120天最高</a-select-option>
+                  <a-select-option value="60">60天最高</a-select-option>
+                  <a-select-option value="30">30天最高</a-select-option>
+                </a-select>
                 <span>行业筛选：</span>
                 <a-select
                   v-model:value="selectedIndustry"
@@ -128,6 +142,7 @@ import { useStockStore } from '../stores/stock'
 const store = useStockStore()
 const activeStrategy = ref('放量策略')
 const selectedDate = ref('')
+const selectedPeriod = ref('')
 const selectedIndustry = ref('')
 const dates = ref([])
 const datesLoading = ref(false)
@@ -334,6 +349,7 @@ const handleFilterChange = () => {
 
 const resetFilters = () => {
   selectedDate.value = ''
+  selectedPeriod.value = ''
   selectedIndustry.value = ''
   pagination.value.current = 1
   loadSelections()
@@ -372,6 +388,15 @@ const loadSelections = async (page = 1) => {
     if (response.code === 0) {
       let data = response.data.selections || []
       
+      // 应用时间段筛选（通过解析reason字段）
+      if (selectedPeriod.value) {
+        const periodText = `${selectedPeriod.value}天最高`
+        data = data.filter(item => {
+          if (!item.reason) return false
+          return item.reason.includes(periodText)
+        })
+      }
+      
       // 应用行业筛选
       if (selectedIndustry.value) {
         data = data.filter(item => item.industry === selectedIndustry.value)
@@ -390,7 +415,7 @@ const loadSelections = async (page = 1) => {
       pagination.value = {
         current: response.data.page || 1,
         pageSize: response.data.per_page || 100,
-        total: selectedIndustry.value ? data.length : response.data.total || 0
+        total: (selectedIndustry.value || selectedPeriod.value) ? data.length : response.data.total || 0
       }
     } else {
       message.error(response.message || '加载选股结果失败')

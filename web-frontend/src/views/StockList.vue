@@ -399,79 +399,132 @@ const allStockColumns = [
     dataIndex: 'symbol',
     key: 'symbol',
     width: 80,
-    fixed: 'left'
+    fixed: 'left',
+    sorter: (a, b) => {
+      if (!a.symbol || !b.symbol) return 0
+      return a.symbol.localeCompare(b.symbol)
+    }
   },
   {
     title: '名称',
     dataIndex: 'name',
     key: 'name',
     width: 100,
-    fixed: 'left'
+    fixed: 'left',
+    sorter: (a, b) => {
+      if (!a.name || !b.name) return 0
+      return a.name.localeCompare(b.name)
+    }
   },
   {
     title: 'TS代码',
     dataIndex: 'ts_code',
     key: 'ts_code',
-    width: 100
+    width: 100,
+    sorter: (a, b) => {
+      if (!a.ts_code || !b.ts_code) return 0
+      return a.ts_code.localeCompare(b.ts_code)
+    }
   },
   {
     title: '地域',
     dataIndex: 'area',
     key: 'area',
-    width: 80
+    width: 80,
+    sorter: (a, b) => {
+      if (!a.area || !b.area) return 0
+      return (a.area || '').localeCompare(b.area || '')
+    }
   },
   {
     title: '行业',
     dataIndex: 'industry',
     key: 'industry',
-    width: 120
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.industry || !b.industry) return 0
+      return (a.industry || '').localeCompare(b.industry || '')
+    }
   },
   {
     title: '市场',
     dataIndex: 'market',
     key: 'market',
-    width: 70
+    width: 70,
+    sorter: (a, b) => {
+      if (!a.market || !b.market) return 0
+      return (a.market || '').localeCompare(b.market || '')
+    }
   },
   {
     title: '上市日期',
     dataIndex: 'list_date',
     key: 'list_date',
-    width: 100
+    width: 100,
+    sorter: (a, b) => {
+      if (!a.list_date || !b.list_date) return 0
+      return (a.list_date || '').localeCompare(b.list_date || '')
+    }
   },
   {
     title: '总市值（万元）',
     dataIndex: 'total_mv',
     key: 'total_mv',
     width: 120,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.total_mv || 0
+      const bVal = b.total_mv || 0
+      return aVal - bVal
+    }
   },
   {
     title: '流通市值（万元）',
     dataIndex: 'circ_mv',
     key: 'circ_mv',
     width: 120,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.circ_mv || 0
+      const bVal = b.circ_mv || 0
+      return aVal - bVal
+    }
   },
   {
     title: '市盈率',
     dataIndex: 'pe',
     key: 'pe',
     width: 80,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pe || 0
+      const bVal = b.pe || 0
+      return aVal - bVal
+    }
   },
   {
     title: '市净率',
     dataIndex: 'pb',
     key: 'pb',
     width: 80,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pb || 0
+      const bVal = b.pb || 0
+      return aVal - bVal
+    }
   },
   {
     title: '市销率',
     dataIndex: 'ps',
     key: 'ps',
     width: 80,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.ps || 0
+      const bVal = b.ps || 0
+      return aVal - bVal
+    }
   },
   {
     title: '操作',
@@ -488,59 +541,99 @@ const ipoStockColumns = [
     dataIndex: 'ts_code',
     key: 'ts_code',
     width: 120,
-    fixed: 'left'
+    fixed: 'left',
+    sorter: (a, b) => {
+      if (!a.ts_code || !b.ts_code) return 0
+      return a.ts_code.localeCompare(b.ts_code)
+    }
   },
   {
     title: '申购代码',
     dataIndex: 'sub_code',
     key: 'sub_code',
-    width: 120
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.sub_code || !b.sub_code) return 0
+      return (a.sub_code || '').localeCompare(b.sub_code || '')
+    }
   },
   {
     title: '股票名称',
     dataIndex: 'name',
     key: 'name',
-    width: 150
+    width: 150,
+    sorter: (a, b) => {
+      if (!a.name || !b.name) return 0
+      return a.name.localeCompare(b.name)
+    }
   },
   {
     title: '上网发行日期',
     dataIndex: 'ipo_date',
     key: 'ipo_date',
-    width: 120
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.ipo_date || !b.ipo_date) return 0
+      return (a.ipo_date || '').localeCompare(b.ipo_date || '')
+    }
   },
   {
     title: '上市日期',
     dataIndex: 'issue_date',
     key: 'issue_date',
-    width: 120
+    width: 120,
+    sorter: (a, b) => {
+      if (!a.issue_date || !b.issue_date) return 0
+      return (a.issue_date || '').localeCompare(b.issue_date || '')
+    }
   },
   {
     title: '发行价格',
     dataIndex: 'price',
     key: 'price',
     width: 100,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.price || 0
+      const bVal = b.price || 0
+      return aVal - bVal
+    }
   },
   {
     title: '市盈率',
     dataIndex: 'pe',
     key: 'pe',
     width: 100,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.pe || 0
+      const bVal = b.pe || 0
+      return aVal - bVal
+    }
   },
   {
     title: '募集资金（亿元）',
     dataIndex: 'funds',
     key: 'funds',
     width: 130,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.funds || 0
+      const bVal = b.funds || 0
+      return aVal - bVal
+    }
   },
   {
     title: '发行总量（万股）',
     dataIndex: 'amount',
     key: 'amount',
     width: 130,
-    align: 'right'
+    align: 'right',
+    sorter: (a, b) => {
+      const aVal = a.amount || 0
+      const bVal = b.amount || 0
+      return aVal - bVal
+    }
   },
   {
     title: '中签率',
