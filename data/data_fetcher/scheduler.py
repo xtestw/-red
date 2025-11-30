@@ -36,6 +36,9 @@ from data_fetcher import (
     fetch_index_dailybasic
 )
 from volume_strategy import save_volume_strategy_selections
+from database import get_session, CustomStrategy
+from sqlalchemy import text
+from datetime import datetime as dt
 
 
 def job_fetch_stock_basic():
@@ -184,7 +187,8 @@ def job_fetch_daily_data(all_data=False):
             start_date = (datetime.now() - timedelta(days=5)).strftime('%Y%m%d')
             print(f"[{datetime.now()}] 使用增量模式：获取最近5天数据（{start_date} 至 {end_date}）")
         
-        fetch_stock_daily(start_date=start_date, end_date=end_date)
+        # all_data模式下启用数据存在性检查，避免重复请求
+        fetch_stock_daily(start_date=start_date, end_date=end_date, check_existing=all_data)
         print(f"[{datetime.now()}] 完成：更新日线数据")
     except Exception as e:
         print(f"[{datetime.now()}] 错误：更新日线数据失败 - {e}")
@@ -328,6 +332,161 @@ def job_volume_strategy():
         print(f"[{datetime.now()}] 完成：放量策略选股，共选出 {count} 只股票")
     except Exception as e:
         print(f"[{datetime.now()}] 错误：放量策略选股失败 - {e}")
+
+
+def job_execute_custom_strategies():
+    """执行所有启用的自定义策略（根据策略的执行规则和时间）"""
+    print(f"[{datetime.now()}] 开始执行：自定义策略选股")
+    try:
+        session = get_session()
+        try:
+            # 获取所有启用的自定义策略
+            strategies = session.query(CustomStrategy).filter(
+                CustomStrategy.is_active == 1
+            ).all()
+            
+            executed_count = 0
+            for strategy in strategies:
+                try:
+                    # 检查是否应该执行
+                    should_execute = False
+                    now = dt.now()
+                    current_time = now.strftime('%H:%M')
+                    
+                    # 检查执行规则和时间
+                    if strategy.execution_rule == 'daily':
+                        # 每天执行，检查时间是否匹配
+                        if strategy.execution_time and strategy.execution_time == current_time:
+                            should_execute = True
+                    elif strategy.execution_rule == 'weekly':
+                        # 每周执行（周日执行）
+                        if now.weekday() == 6 and strategy.execution_time and strategy.execution_time == current_time:
+                            should_execute = True
+                    elif strategy.execution_rule == 'monthly':
+                        # 每月执行（每月1日执行）
+                        if now.day == 1 and strategy.execution_time and strategy.execution_time == current_time:
+                            should_execute = True
+                    
+                    if not should_execute:
+                        continue
+                    
+                    print(f"[{datetime.now()}] 执行策略：{strategy.name}")
+                    
+                    # 获取最新交易日期
+                    from sqlalchemy import func
+                    from database import StockDaily
+                    latest_date = session.query(func.max(StockDaily.trade_date)).scalar()
+                    if not latest_date:
+                        print(f"[{datetime.now()}] 警告：没有可用的交易数据，跳过策略 {strategy.name}")
+                        continue
+                    
+                    # 执行SQL查询
+                    sql = strategy.sql_query
+                    if '{trade_date}' in sql:
+                        sql = sql.replace('{trade_date}', latest_date)
+                    
+                    query = text(sql)
+                    result = session.execute(query)
+                    
+                    # 获取列名
+                    columns = list(result.keys())
+                    
+                    # 检查必需的列
+                    if 'ts_code' not in columns:
+                        print(f"[{datetime.now()}] 警告：策略 {strategy.name} 的SQL查询结果缺少ts_code列，跳过")
+                        continue
+                    
+                    # 获取数据
+                    rows = []
+                    for row in result:
+                        row_dict = {}
+                        for i, col in enumerate(columns):
+                            value = row[i]
+                            if isinstance(value, dt):
+                                value = value.strftime('%Y-%m-%d %H:%M:%S')
+                            row_dict[col] = value
+                        rows.append(row_dict)
+                    
+                    # 保存选股结果
+                    saved_count = 0
+                    for row in rows:
+                        ts_code = row.get('ts_code')
+                        if not ts_code:
+                            continue
+                        
+                        # 获取股票基本信息
+                        from database import StockBasic, StockSelection
+                        stock = session.query(StockBasic).filter_by(ts_code=ts_code).first()
+                        if not stock:
+                            continue
+                        
+                        # 获取最新日线数据
+                        daily = session.query(StockDaily).filter(
+                            StockDaily.ts_code == ts_code,
+                            StockDaily.trade_date == latest_date
+                        ).first()
+                        
+                        # 构建选股理由
+                        reason_parts = []
+                        if daily:
+                            if daily.pct_chg:
+                                reason_parts.append(f"涨跌幅: {daily.pct_chg:.2f}%")
+                            if daily.vol:
+                                reason_parts.append(f"成交量: {daily.vol:.0f}")
+                        reason = " | ".join(reason_parts) if reason_parts else "自定义策略选股"
+                        
+                        # 计算评分
+                        score = 0.0
+                        if 'score' in row and row['score']:
+                            try:
+                                score = float(row['score'])
+                            except:
+                                pass
+                        
+                        # 检查是否已存在
+                        existing = session.query(StockSelection).filter_by(
+                            ts_code=ts_code,
+                            strategy_name=strategy.name,
+                            trade_date=latest_date
+                        ).first()
+                        
+                        if existing:
+                            existing.score = score
+                            existing.reason = reason
+                            existing.created_at = dt.now()
+                        else:
+                            selection = StockSelection(
+                                ts_code=ts_code,
+                                strategy_name=strategy.name,
+                                trade_date=latest_date,
+                                score=score,
+                                reason=reason,
+                                created_at=dt.now()
+                            )
+                            session.add(selection)
+                        
+                        saved_count += 1
+                    
+                    session.commit()
+                    
+                    # 更新策略的最后执行时间
+                    strategy.last_executed_at = dt.now()
+                    session.commit()
+                    
+                    print(f"[{datetime.now()}] 策略 {strategy.name} 执行完成，保存了 {saved_count} 条选股结果")
+                    executed_count += 1
+                    
+                except Exception as e:
+                    print(f"[{datetime.now()}] 错误：执行策略 {strategy.name} 失败 - {e}")
+                    session.rollback()
+                    continue
+            
+            if executed_count > 0:
+                print(f"[{datetime.now()}] 完成：自定义策略选股，共执行 {executed_count} 个策略")
+        finally:
+            session.close()
+    except Exception as e:
+        print(f"[{datetime.now()}] 错误：自定义策略选股失败 - {e}")
 
 
 def run_job_with_logging(job_name, job_func, job_args, lock):
@@ -687,6 +846,15 @@ def start_scheduler(run_now=False, all_data=False, parallel=True):
         trigger=CronTrigger(hour=15, minute=30),
         id='fetch_index_dailybasic',
         name='更新指数每日指标',
+        replace_existing=True
+    )
+    
+    # 每分钟检查并执行自定义策略（根据策略的执行规则和时间）
+    scheduler.add_job(
+        job_execute_custom_strategies,
+        trigger=CronTrigger(minute='*'),  # 每分钟执行一次
+        id='execute_custom_strategies',
+        name='执行自定义策略',
         replace_existing=True
     )
     

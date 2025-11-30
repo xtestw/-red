@@ -469,6 +469,112 @@ class IndexWeight(Base):
         Index('idx_index_code_con_code_date', 'index_code', 'con_code', 'trade_date', unique=True),
     )
 
+# 自定义策略表
+class CustomStrategy(Base):
+    __tablename__ = 'custom_strategy'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True, comment='策略名称')
+    description = Column(Text, comment='策略描述')
+    sql_query = Column(Text, nullable=False, comment='SQL查询语句')
+    missing_tables = Column(Text, comment='缺失的数据表（JSON格式）')
+    execution_rule = Column(String(50), comment='执行规则：daily（每天）、weekly（每周）、monthly（每月）')
+    execution_time = Column(String(20), comment='执行时间，格式：HH:MM，如15:30')
+    is_active = Column(Integer, default=1, comment='是否启用：1-启用，0-禁用')
+    created_at = Column(DateTime, comment='创建时间')
+    updated_at = Column(DateTime, comment='更新时间')
+    last_executed_at = Column(DateTime, comment='最后执行时间')
+    
+    __table_args__ = (
+        Index('idx_name', 'name'),
+        Index('idx_is_active', 'is_active'),
+    )
+
+
+# 策略胜率表
+class StrategyWinRate(Base):
+    __tablename__ = 'strategy_win_rate'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_name = Column(String(100), nullable=False, comment='策略名称')
+    trade_date = Column(String(10), nullable=False, comment='选股日期')
+    
+    # 单日胜率（当天选出的股票，在N日后的胜率）
+    win_rate_1d = Column(Float, comment='次日胜率（%）')
+    win_rate_3d = Column(Float, comment='3日胜率（%）')
+    win_rate_5d = Column(Float, comment='5日胜率（%）')
+    win_rate_10d = Column(Float, comment='10日胜率（%）')
+    win_rate_20d = Column(Float, comment='20日胜率（%）')
+    
+    # 选股数量
+    total_count = Column(Integer, comment='总选股数量')
+    win_count_1d = Column(Integer, comment='次日有效选股数量')
+    win_count_3d = Column(Integer, comment='3日有效选股数量')
+    win_count_5d = Column(Integer, comment='5日有效选股数量')
+    win_count_10d = Column(Integer, comment='10日有效选股数量')
+    win_count_20d = Column(Integer, comment='20日有效选股数量')
+    
+    # 历史累计胜率（截至该日期的历史所有数据）
+    historical_win_rate_1d = Column(Float, comment='历史累计次日胜率（%）')
+    historical_win_rate_3d = Column(Float, comment='历史累计3日胜率（%）')
+    historical_win_rate_5d = Column(Float, comment='历史累计5日胜率（%）')
+    historical_win_rate_10d = Column(Float, comment='历史累计10日胜率（%）')
+    historical_win_rate_20d = Column(Float, comment='历史累计20日胜率（%）')
+    
+    # 历史累计选股数量
+    historical_total_count = Column(Integer, comment='历史累计总选股数量')
+    historical_win_count_1d = Column(Integer, comment='历史累计次日有效选股数量')
+    historical_win_count_3d = Column(Integer, comment='历史累计3日有效选股数量')
+    historical_win_count_5d = Column(Integer, comment='历史累计5日有效选股数量')
+    historical_win_count_10d = Column(Integer, comment='历史累计10日有效选股数量')
+    historical_win_count_20d = Column(Integer, comment='历史累计20日有效选股数量')
+    
+    # 滚动窗口胜率（过去N日的胜率）
+    rolling_5d_win_rate_1d = Column(Float, comment='过去5日次日胜率（%）')
+    rolling_5d_win_rate_3d = Column(Float, comment='过去5日3日胜率（%）')
+    rolling_5d_win_rate_5d = Column(Float, comment='过去5日5日胜率（%）')
+    rolling_5d_win_rate_10d = Column(Float, comment='过去5日10日胜率（%）')
+    rolling_5d_win_rate_20d = Column(Float, comment='过去5日20日胜率（%）')
+    
+    rolling_10d_win_rate_1d = Column(Float, comment='过去10日次日胜率（%）')
+    rolling_10d_win_rate_3d = Column(Float, comment='过去10日3日胜率（%）')
+    rolling_10d_win_rate_5d = Column(Float, comment='过去10日5日胜率（%）')
+    rolling_10d_win_rate_10d = Column(Float, comment='过去10日10日胜率（%）')
+    rolling_10d_win_rate_20d = Column(Float, comment='过去10日20日胜率（%）')
+    
+    rolling_20d_win_rate_1d = Column(Float, comment='过去20日次日胜率（%）')
+    rolling_20d_win_rate_3d = Column(Float, comment='过去20日3日胜率（%）')
+    rolling_20d_win_rate_5d = Column(Float, comment='过去20日5日胜率（%）')
+    rolling_20d_win_rate_10d = Column(Float, comment='过去20日10日胜率（%）')
+    rolling_20d_win_rate_20d = Column(Float, comment='过去20日20日胜率（%）')
+    
+    rolling_30d_win_rate_1d = Column(Float, comment='过去30日次日胜率（%）')
+    rolling_30d_win_rate_3d = Column(Float, comment='过去30日3日胜率（%）')
+    rolling_30d_win_rate_5d = Column(Float, comment='过去30日5日胜率（%）')
+    rolling_30d_win_rate_10d = Column(Float, comment='过去30日10日胜率（%）')
+    rolling_30d_win_rate_20d = Column(Float, comment='过去30日20日胜率（%）')
+    
+    rolling_60d_win_rate_1d = Column(Float, comment='过去60日次日胜率（%）')
+    rolling_60d_win_rate_3d = Column(Float, comment='过去60日3日胜率（%）')
+    rolling_60d_win_rate_5d = Column(Float, comment='过去60日5日胜率（%）')
+    rolling_60d_win_rate_10d = Column(Float, comment='过去60日10日胜率（%）')
+    rolling_60d_win_rate_20d = Column(Float, comment='过去60日20日胜率（%）')
+    
+    rolling_90d_win_rate_1d = Column(Float, comment='过去90日次日胜率（%）')
+    rolling_90d_win_rate_3d = Column(Float, comment='过去90日3日胜率（%）')
+    rolling_90d_win_rate_5d = Column(Float, comment='过去90日5日胜率（%）')
+    rolling_90d_win_rate_10d = Column(Float, comment='过去90日10日胜率（%）')
+    rolling_90d_win_rate_20d = Column(Float, comment='过去90日20日胜率（%）')
+    
+    created_at = Column(DateTime, comment='创建时间')
+    updated_at = Column(DateTime, comment='更新时间')
+    
+    __table_args__ = (
+        Index('idx_strategy_date', 'strategy_name', 'trade_date', unique=True),
+        Index('idx_strategy_name', 'strategy_name'),
+        Index('idx_trade_date', 'trade_date'),
+    )
+
 
 def get_engine():
     """获取数据库引擎（支持配置热重载）"""

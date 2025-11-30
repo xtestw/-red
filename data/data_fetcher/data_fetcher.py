@@ -10,6 +10,9 @@ import time
 import sys
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from queue import Queue
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -62,6 +65,150 @@ logger = logging.getLogger(__name__)
 def get_pro_api():
     """获取Tushare API对象（支持配置热重载）"""
     return ts.pro_api(get_tushare_token())
+
+
+class RateLimiter:
+    """线程安全的限速控制器"""
+    def __init__(self, max_requests_per_minute=50, request_interval=None):
+        """
+        初始化限速控制器
+        
+        Args:
+            max_requests_per_minute: 每分钟最大请求数
+            request_interval: 每次请求的最小间隔（秒），如果为None则自动计算
+        """
+        self.max_requests = max_requests_per_minute
+        self.request_interval = request_interval or (60.0 / max_requests_per_minute * 1.1)  # 增加10%安全余量
+        self.request_count = 0
+        self.minute_start_time = time.time()
+        self.lock = threading.Lock()
+        self.last_request_time = 0
+    
+    def wait_if_needed(self):
+        """如果需要，等待直到可以发送下一个请求"""
+        with self.lock:
+            current_time = time.time()
+            elapsed = current_time - self.minute_start_time
+            
+            # 如果超过1分钟，重置计数器
+            if elapsed >= 60:
+                self.request_count = 0
+                self.minute_start_time = current_time
+                elapsed = 0
+            
+            # 检查是否达到每分钟限制
+            if self.request_count >= self.max_requests:
+                wait_time = 60 - elapsed + 1
+                logger.warning(f"达到每分钟请求限制({self.max_requests}次)，等待 {wait_time:.1f} 秒...")
+                time.sleep(wait_time)
+                self.request_count = 0
+                self.minute_start_time = time.time()
+                current_time = time.time()
+            
+            # 确保请求间隔
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.request_interval:
+                sleep_time = self.request_interval - time_since_last
+                time.sleep(sleep_time)
+            
+            self.request_count += 1
+            self.last_request_time = time.time()
+    
+    def reset(self):
+        """重置限速器"""
+        with self.lock:
+            self.request_count = 0
+            self.minute_start_time = time.time()
+            self.last_request_time = 0
+
+
+def fetch_data_multithreaded(
+    codes,
+    fetch_func,
+    rate_limiter,
+    max_workers=20,
+    progress_callback=None,
+    error_callback=None
+):
+    """
+    使用多线程并行获取数据
+    
+    Args:
+        codes: 要处理的代码列表（如股票代码、指数代码等）
+        fetch_func: 处理单个代码的函数，签名: fetch_func(code, session, rate_limiter) -> (success, count, error)
+        rate_limiter: RateLimiter实例，用于限速控制
+        max_workers: 最大线程数
+        progress_callback: 进度回调函数，签名: progress_callback(completed, total, current_code)
+        error_callback: 错误回调函数，签名: error_callback(code, error)
+    
+    Returns:
+        tuple: (成功数量, 失败数量, 总数据量)
+    """
+    total = len(codes)
+    completed = 0
+    success_count = 0
+    error_count = 0
+    total_data_count = 0
+    completed_lock = threading.Lock()
+    
+    def process_code(code):
+        """处理单个代码"""
+        nonlocal completed, success_count, error_count, total_data_count
+        
+        # 每个线程使用独立的数据库会话
+        session = get_session()
+        try:
+            # 限速控制
+            rate_limiter.wait_if_needed()
+            
+            # 调用获取函数
+            success, data_count, error = fetch_func(code, session, rate_limiter)
+            
+            if success:
+                with completed_lock:
+                    completed += 1
+                    success_count += 1
+                    total_data_count += data_count
+                    if progress_callback:
+                        progress_callback(completed, total, code)
+            else:
+                with completed_lock:
+                    completed += 1
+                    error_count += 1
+                    if error_callback:
+                        error_callback(code, error)
+            
+            return success, data_count, error
+        except Exception as e:
+            with completed_lock:
+                completed += 1
+                error_count += 1
+                if error_callback:
+                    error_callback(code, str(e))
+            return False, 0, str(e)
+        finally:
+            session.close()
+    
+    # 使用线程池执行
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_code = {
+            executor.submit(process_code, code): code
+            for code in codes
+        }
+        
+        # 等待所有任务完成
+        for future in as_completed(future_to_code):
+            code = future_to_code[future]
+            try:
+                future.result()
+            except Exception as e:
+                with completed_lock:
+                    error_count += 1
+                if error_callback:
+                    error_callback(code, str(e))
+    
+    return success_count, error_count, total_data_count
 
 
 def call_tushare_api(api_func, api_name, **kwargs):
@@ -522,7 +669,108 @@ def fetch_stock_premarket(trade_date=None):
         session.close()
 
 
-def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_date=False):
+def _fetch_single_stock_daily(code, session, rate_limiter, start_date, end_date, check_existing=True):
+    """
+    获取单个股票的日线数据（用于多线程处理）
+    
+    Args:
+        code: 股票代码
+        session: 数据库会话
+        rate_limiter: 限速器
+        start_date: 开始日期
+        end_date: 结束日期
+        check_existing: 是否在请求前检查数据库中是否已有数据（all_data模式时使用）
+    
+    Returns:
+        tuple: (success, count, error)
+    """
+    try:
+        # 如果启用检查，先查询数据库中已有的日期
+        existing_dates = set()
+        if check_existing:
+            existing_records = session.query(StockDaily.trade_date).filter_by(
+                ts_code=code
+            ).filter(
+                StockDaily.trade_date >= start_date,
+                StockDaily.trade_date <= end_date
+            ).all()
+            existing_dates = {record[0] for record in existing_records}
+            
+            # 如果所有日期的数据都已存在，直接返回
+            if existing_dates:
+                # 计算日期范围内的所有交易日（简化处理，假设每天都是交易日）
+                from datetime import datetime, timedelta
+                start_dt = datetime.strptime(start_date, '%Y%m%d')
+                end_dt = datetime.strptime(end_date, '%Y%m%d')
+                total_days = (end_dt - start_dt).days + 1
+                
+                # 如果已有数据覆盖了大部分日期，跳过API请求
+                # 这里使用80%作为阈值，避免因为非交易日导致误判
+                if len(existing_dates) >= total_days * 0.8:
+                    logger.info(f"{code}: 日期范围 {start_date} 至 {end_date} 的数据已存在（{len(existing_dates)}/{total_days} 天），跳过API请求")
+                    return True, 0, None
+        
+        pro = get_pro_api()
+        df = call_tushare_api(
+            pro.daily,
+            f'daily (ts_code={code})',
+            ts_code=code,
+            start_date=start_date,
+            end_date=end_date,
+            fields='ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount'
+        )
+        
+        if df.empty:
+            logger.warning(f"{code}: 日期范围 {start_date} 至 {end_date} 内没有数据（可能是非交易日或停牌）")
+            return True, 0, None
+        
+        # 批量插入数据
+        new_records = []
+        for _, row in df.iterrows():
+            trade_date = row['trade_date']
+            
+            # 如果已存在，跳过
+            if check_existing and trade_date in existing_dates:
+                continue
+            
+            daily = session.query(StockDaily).filter_by(
+                ts_code=row['ts_code'],
+                trade_date=trade_date
+            ).first()
+            
+            if not daily:
+                daily = StockDaily(
+                    ts_code=row['ts_code'],
+                    trade_date=trade_date,
+                    open=row.get('open'),
+                    high=row.get('high'),
+                    low=row.get('low'),
+                    close=row.get('close'),
+                    pre_close=row.get('pre_close'),
+                    change=row.get('change'),
+                    pct_chg=row.get('pct_chg'),
+                    vol=row.get('vol'),
+                    amount=row.get('amount'),
+                    created_at=datetime.now()
+                )
+                new_records.append(daily)
+        
+        if new_records:
+            session.add_all(new_records)
+            session.commit()
+            logger.info(f"{code}: 新增 {len(new_records)} 条数据（API返回 {len(df)} 条，已存在 {len(df) - len(new_records)} 条）")
+        elif len(df) > 0:
+            logger.info(f"{code}: 无新增数据（API返回 {len(df)} 条，但数据库中已存在）")
+        
+        return True, len(new_records), None
+    except TusharePermissionError as e:
+        return False, 0, f"权限不足: {e.error_msg}"
+    except Exception as e:
+        session.rollback()
+        return False, 0, str(e)
+
+
+def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_date=False, use_multithread=True, max_workers=5, check_existing=True):
     """
     获取股票日线数据
     限速要求：每分钟50次，每次6000条数据
@@ -534,6 +782,9 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
         batch_by_date: 是否按日期批量获取（不传ts_code，按日期获取所有股票）
                        True: 按日期批量获取，更高效但需要确保每天数据不超过6000条
                        False: 按股票逐个获取（默认）
+        use_multithread: 是否使用多线程（仅在按股票逐个获取模式下有效）
+        max_workers: 最大线程数（仅在多线程模式下有效）
+        check_existing: 是否在请求前检查数据库中是否已有数据（all_data模式时建议启用）
     """
     if not end_date:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -543,10 +794,13 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
     logger.info("=" * 60)
     logger.info(f"开始获取日线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
     logger.info(f"限速策略: 每分钟最多50次请求，每次最多6000条数据")
-    logger.info(f"获取模式: {'按日期批量获取' if batch_by_date and not ts_code else '按股票逐个获取'}")
+    mode = '按日期批量获取' if batch_by_date and not ts_code else ('多线程按股票获取' if use_multithread else '按股票逐个获取')
+    logger.info(f"获取模式: {mode}")
     print(f"开始获取日线数据: {ts_code or '全部股票'}, {start_date} 至 {end_date}")
     print(f"限速策略: 每分钟最多50次请求，每次最多6000条数据")
-    print(f"获取模式: {'按日期批量获取' if batch_by_date and not ts_code else '按股票逐个获取'}")
+    print(f"获取模式: {mode}")
+    if use_multithread and not batch_by_date:
+        print(f"多线程模式: {max_workers} 个线程")
     
     session = get_session()
     try:
@@ -555,6 +809,9 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
         REQUEST_INTERVAL = 1.3  # 秒
         MAX_REQUESTS_PER_MINUTE = 50
         MAX_RECORDS_PER_REQUEST = 6000
+        
+        # 创建限速器
+        rate_limiter = RateLimiter(max_requests_per_minute=MAX_REQUESTS_PER_MINUTE, request_interval=REQUEST_INTERVAL)
         
         # 请求计数器（用于每分钟重置）
         request_count = 0
@@ -571,6 +828,17 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
             
             while current_date <= end_dt:
                 trade_date = current_date.strftime('%Y%m%d')
+                
+                # 如果启用检查，先检查该日期是否已有数据
+                if check_existing:
+                    existing_count = session.query(StockDaily).filter_by(trade_date=trade_date).count()
+                    if existing_count > 0:
+                        # 检查是否所有股票都有该日期的数据（简化判断：如果已有数据超过1000条，认为数据完整）
+                        total_stocks = session.query(StockBasic).count()
+                        if existing_count >= total_stocks * 0.9:  # 90%的股票都有数据，认为数据完整
+                            logger.info(f"{trade_date}: 数据已存在（{existing_count}/{total_stocks} 股票），跳过API请求")
+                            current_date += timedelta(days=1)
+                            continue
                 
                 # 检查是否需要等待（每分钟50次限制）
                 current_time = time.time()
@@ -743,7 +1011,7 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                     current_date += timedelta(days=1)
                     continue
         else:
-            # 按股票逐个获取模式（原有逻辑）
+            # 按股票逐个获取模式
             if ts_code:
                 codes = [ts_code]
             else:
@@ -751,209 +1019,237 @@ def fetch_stock_daily(ts_code=None, start_date=None, end_date=None, batch_by_dat
                 codes = [stock.ts_code for stock in stocks]
             
             total_stocks = len(codes)
-            for i, code in enumerate(codes):
-                try:
-                    # 每处理100个股票显示一次进度（全量模式时）
-                    if (i + 1) % 100 == 0 or i == 0:
-                        progress = (i + 1) / total_stocks * 100
-                        print(f"进度: {i+1}/{total_stocks} ({progress:.1f}%) - 当前处理: {code}")
-                    
-                    # 检查是否需要等待（每分钟50次限制）
-                    current_time = time.time()
-                    elapsed = current_time - minute_start_time
-                    
-                    if elapsed >= 60:
-                        # 重置计数器
-                        request_count = 0
-                        minute_start_time = current_time
-                        print(f"限速窗口重置，已处理 {i}/{total_stocks} 个股票 ({i/total_stocks*100:.1f}%)")
-                    elif request_count >= MAX_REQUESTS_PER_MINUTE:
-                        # 等待到下一分钟
-                        wait_time = 60 - elapsed + 1
-                        logger.warning(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
-                        print(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
-                        time.sleep(wait_time)
-                        request_count = 0
-                        minute_start_time = time.time()
-                        logger.info("限速等待完成，继续请求")
-                    
-                    pro = get_pro_api()
-                    df = call_tushare_api(
-                        pro.daily,
-                        f'daily (ts_code={code})',
-                        ts_code=code,
-                        start_date=start_date,
-                        end_date=end_date,
-                        fields='ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount'
-                    )
-                    
-                    request_count += 1
-                    total_requests += 1
-                    
-                    if df.empty:
-                        # 即使没有数据，也要等待间隔
-                        logger.warning(f"{code}: 日期范围 {start_date} 至 {end_date} 内没有数据（可能是非交易日或停牌）")
-                        time.sleep(REQUEST_INTERVAL)
-                        continue
-                    
-                    # 检查返回数据量并记录详细信息
-                    returned_count = len(df)
-                    if returned_count > 0:
-                        trade_dates = sorted(df['trade_date'].unique().tolist())
-                        logger.info(f"{code}: 返回 {returned_count} 条数据，交易日: {', '.join(trade_dates)}")
-                        if returned_count < 5 and (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days >= 5:
-                            logger.info(f"{code}: 注意 - 日期范围 {start_date} 至 {end_date} 包含非交易日或停牌日")
-                    
-                    # 检查返回数据量
-                    if len(df) > MAX_RECORDS_PER_REQUEST:
-                        print(f"警告: {code} 返回 {len(df)} 条数据，超过单次限制 {MAX_RECORDS_PER_REQUEST} 条")
-                    
-                    # 批量插入数据
-                    new_records = []
-                    for _, row in df.iterrows():
-                        daily = session.query(StockDaily).filter_by(
-                            ts_code=row['ts_code'],
-                            trade_date=row['trade_date']
-                        ).first()
-                        
-                        if not daily:
-                            daily = StockDaily(
-                                ts_code=row['ts_code'],
-                                trade_date=row['trade_date'],
-                                open=row.get('open'),
-                                high=row.get('high'),
-                                low=row.get('low'),
-                                close=row.get('close'),
-                                pre_close=row.get('pre_close'),
-                                change=row.get('change'),
-                                pct_chg=row.get('pct_chg'),
-                                vol=row.get('vol'),
-                                amount=row.get('amount'),
-                                created_at=datetime.now()
-                            )
-                            new_records.append(daily)
-                            total_count += 1
-                    
-                    if new_records:
-                        session.add_all(new_records)
-                        session.commit()
-                        print(f"[{i+1}/{len(codes)}] {code}: 新增 {len(new_records)} 条数据（API返回 {returned_count} 条，已存在 {returned_count - len(new_records)} 条）")
-                    elif returned_count > 0:
-                        print(f"[{i+1}/{len(codes)}] {code}: 无新增数据（API返回 {returned_count} 条，但数据库中已存在）")
-                    
-                    # 获取该股票的两融数据并更新到日线表
+            
+            if use_multithread and len(codes) > 1:
+                # 使用多线程模式
+                print(f"使用多线程模式处理 {total_stocks} 个股票...")
+                
+                def fetch_func(code, session, rate_limiter):
+                    return _fetch_single_stock_daily(code, session, rate_limiter, start_date, end_date, check_existing)
+                
+                def progress_callback(completed, total, current_code):
+                    if completed % 50 == 0 or completed == total:
+                        progress = completed / total * 100
+                        print(f"进度: {completed}/{total} ({progress:.1f}%) - 当前处理: {current_code}")
+                
+                def error_callback(code, error):
+                    logger.error(f"{code}: 获取失败 - {error}")
+                
+                success_count, error_count, total_count = fetch_data_multithreaded(
+                    codes,
+                    fetch_func,
+                    rate_limiter,
+                    max_workers=max_workers,
+                    progress_callback=progress_callback,
+                    error_callback=error_callback
+                )
+                
+                print(f"\n多线程处理完成: 成功 {success_count} 个，失败 {error_count} 个，新增数据 {total_count} 条")
+            else:
+                # 单线程模式（原有逻辑）
+                for i, code in enumerate(codes):
                     try:
-                        df_margin = call_tushare_api(
-                            pro.margin,
-                            f'margin (ts_code={code})',
+                        # 每处理100个股票显示一次进度（全量模式时）
+                        if (i + 1) % 100 == 0 or i == 0:
+                            progress = (i + 1) / total_stocks * 100
+                            print(f"进度: {i+1}/{total_stocks} ({progress:.1f}%) - 当前处理: {code}")
+                        
+                        # 检查是否需要等待（每分钟50次限制）
+                        current_time = time.time()
+                        elapsed = current_time - minute_start_time
+                        
+                        if elapsed >= 60:
+                            # 重置计数器
+                            request_count = 0
+                            minute_start_time = current_time
+                            print(f"限速窗口重置，已处理 {i}/{total_stocks} 个股票 ({i/total_stocks*100:.1f}%)")
+                        elif request_count >= MAX_REQUESTS_PER_MINUTE:
+                            # 等待到下一分钟
+                            wait_time = 60 - elapsed + 1
+                            logger.warning(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                            print(f"达到每分钟请求限制({MAX_REQUESTS_PER_MINUTE}次)，等待 {wait_time:.1f} 秒...")
+                            time.sleep(wait_time)
+                            request_count = 0
+                            minute_start_time = time.time()
+                            logger.info("限速等待完成，继续请求")
+                        
+                        pro = get_pro_api()
+                        df = call_tushare_api(
+                            pro.daily,
+                            f'daily (ts_code={code})',
                             ts_code=code,
                             start_date=start_date,
                             end_date=end_date,
-                            fields='ts_code,trade_date,rzye,rqye,rqyl,rzrqye,rzmre,rqmcl,rzche,rqchl'
+                            fields='ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount'
                         )
                         
-                        if not df_margin.empty:
-                            margin_updated = 0
-                            for _, margin_row in df_margin.iterrows():
-                                trade_date_margin = margin_row.get('trade_date')
-                                if not trade_date_margin:
-                                    continue
-                                
-                                # 查找对应的日线记录
-                                daily_record = session.query(StockDaily).filter_by(
-                                    ts_code=code,
-                                    trade_date=trade_date_margin
-                                ).first()
-                                
-                                if daily_record:
-                                    # 更新两融数据
-                                    daily_record.rzye = margin_row.get('rzye')
-                                    daily_record.rqye = margin_row.get('rqye')
-                                    daily_record.rqyl = margin_row.get('rqyl')
-                                    daily_record.rzrqye = margin_row.get('rzrqye')
-                                    daily_record.rzmre = margin_row.get('rzmre')
-                                    daily_record.rqmcl = margin_row.get('rqmcl')
-                                    daily_record.rzche = margin_row.get('rzche')
-                                    daily_record.rqchl = margin_row.get('rqchl')
-                                    margin_updated += 1
+                        request_count += 1
+                        total_requests += 1
+                        
+                        if df.empty:
+                            # 即使没有数据，也要等待间隔
+                            logger.warning(f"{code}: 日期范围 {start_date} 至 {end_date} 内没有数据（可能是非交易日或停牌）")
+                            time.sleep(REQUEST_INTERVAL)
+                            continue
+                        
+                        # 检查返回数据量并记录详细信息
+                        returned_count = len(df)
+                        if returned_count > 0:
+                            trade_dates = sorted(df['trade_date'].unique().tolist())
+                            logger.info(f"{code}: 返回 {returned_count} 条数据，交易日: {', '.join(trade_dates)}")
+                            if returned_count < 5 and (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days >= 5:
+                                logger.info(f"{code}: 注意 - 日期范围 {start_date} 至 {end_date} 包含非交易日或停牌日")
+                        
+                        # 检查返回数据量
+                        if len(df) > MAX_RECORDS_PER_REQUEST:
+                            print(f"警告: {code} 返回 {len(df)} 条数据，超过单次限制 {MAX_RECORDS_PER_REQUEST} 条")
+                        
+                        # 批量插入数据
+                        new_records = []
+                        for _, row in df.iterrows():
+                            daily = session.query(StockDaily).filter_by(
+                                ts_code=row['ts_code'],
+                                trade_date=row['trade_date']
+                            ).first()
                             
-                            if margin_updated > 0:
-                                session.commit()
-                                logger.debug(f"{code}: 更新了 {margin_updated} 条两融数据")
-                    except Exception as e:
-                        logger.warning(f"获取 {code} 的两融数据失败: {e}")
-                        # 两融数据获取失败不影响日线数据，继续执行
-                    
-                    # 获取该股票的资金流向数据并更新到日线表
-                    try:
-                        df_moneyflow = call_tushare_api(
-                            pro.moneyflow,
-                            f'moneyflow (ts_code={code})',
+                            if not daily:
+                                daily = StockDaily(
+                                    ts_code=row['ts_code'],
+                                    trade_date=row['trade_date'],
+                                    open=row.get('open'),
+                                    high=row.get('high'),
+                                    low=row.get('low'),
+                                    close=row.get('close'),
+                                    pre_close=row.get('pre_close'),
+                                    change=row.get('change'),
+                                    pct_chg=row.get('pct_chg'),
+                                    vol=row.get('vol'),
+                                    amount=row.get('amount'),
+                                    created_at=datetime.now()
+                                )
+                                new_records.append(daily)
+                                total_count += 1
+                        
+                        if new_records:
+                            session.add_all(new_records)
+                            session.commit()
+                            print(f"[{i+1}/{len(codes)}] {code}: 新增 {len(new_records)} 条数据（API返回 {returned_count} 条，已存在 {returned_count - len(new_records)} 条）")
+                        elif returned_count > 0:
+                            print(f"[{i+1}/{len(codes)}] {code}: 无新增数据（API返回 {returned_count} 条，但数据库中已存在）")
+                        
+                        # 获取该股票的两融数据并更新到日线表
+                        try:
+                            df_margin = call_tushare_api(
+                                pro.margin,
+                                f'margin (ts_code={code})',
+                                ts_code=code,
+                                start_date=start_date,
+                                end_date=end_date,
+                                fields='ts_code,trade_date,rzye,rqye,rqyl,rzrqye,rzmre,rqmcl,rzche,rqchl'
+                            )
+                            
+                            if not df_margin.empty:
+                                margin_updated = 0
+                                for _, margin_row in df_margin.iterrows():
+                                    trade_date_margin = margin_row.get('trade_date')
+                                    if not trade_date_margin:
+                                        continue
+                                    
+                                    # 查找对应的日线记录
+                                    daily_record = session.query(StockDaily).filter_by(
+                                        ts_code=code,
+                                        trade_date=trade_date_margin
+                                    ).first()
+                                    
+                                    if daily_record:
+                                        # 更新两融数据
+                                        daily_record.rzye = margin_row.get('rzye')
+                                        daily_record.rqye = margin_row.get('rqye')
+                                        daily_record.rqyl = margin_row.get('rqyl')
+                                        daily_record.rzrqye = margin_row.get('rzrqye')
+                                        daily_record.rzmre = margin_row.get('rzmre')
+                                        daily_record.rqmcl = margin_row.get('rqmcl')
+                                        daily_record.rzche = margin_row.get('rzche')
+                                        daily_record.rqchl = margin_row.get('rqchl')
+                                        margin_updated += 1
+                                
+                                if margin_updated > 0:
+                                    session.commit()
+                                    logger.debug(f"{code}: 更新了 {margin_updated} 条两融数据")
+                        except Exception as e:
+                            logger.warning(f"获取 {code} 的两融数据失败: {e}")
+                            # 两融数据获取失败不影响日线数据，继续执行
+                        
+                        # 获取该股票的资金流向数据并更新到日线表
+                        try:
+                            df_moneyflow = call_tushare_api(
+                                pro.moneyflow,
+                                f'moneyflow (ts_code={code})',
                             ts_code=code,
                             start_date=start_date,
                             end_date=end_date,
                             fields='ts_code,trade_date,buy_sm_vol,buy_sm_amount,sell_sm_vol,sell_sm_amount,buy_md_vol,buy_md_amount,sell_md_vol,sell_md_amount,buy_lg_vol,buy_lg_amount,sell_lg_vol,sell_lg_amount,buy_elg_vol,buy_elg_amount,sell_elg_vol,sell_elg_amount,net_mf_amount'
-                        )
-                        
-                        if not df_moneyflow.empty:
-                            moneyflow_updated = 0
-                            for _, mf_row in df_moneyflow.iterrows():
-                                trade_date_mf = mf_row.get('trade_date')
-                                if not trade_date_mf:
-                                    continue
-                                
-                                # 查找对应的日线记录
-                                daily_record = session.query(StockDaily).filter_by(
-                                    ts_code=code,
-                                    trade_date=trade_date_mf
-                                ).first()
-                                
-                                if daily_record:
-                                    # 更新资金流向数据
-                                    daily_record.buy_sm_vol = mf_row.get('buy_sm_vol')
-                                    daily_record.buy_sm_amount = mf_row.get('buy_sm_amount')
-                                    daily_record.sell_sm_vol = mf_row.get('sell_sm_vol')
-                                    daily_record.sell_sm_amount = mf_row.get('sell_sm_amount')
-                                    daily_record.buy_md_vol = mf_row.get('buy_md_vol')
-                                    daily_record.buy_md_amount = mf_row.get('buy_md_amount')
-                                    daily_record.sell_md_vol = mf_row.get('sell_md_vol')
-                                    daily_record.sell_md_amount = mf_row.get('sell_md_amount')
-                                    daily_record.buy_lg_vol = mf_row.get('buy_lg_vol')
-                                    daily_record.buy_lg_amount = mf_row.get('buy_lg_amount')
-                                    daily_record.sell_lg_vol = mf_row.get('sell_lg_vol')
-                                    daily_record.sell_lg_amount = mf_row.get('sell_lg_amount')
-                                    daily_record.buy_elg_vol = mf_row.get('buy_elg_vol')
-                                    daily_record.buy_elg_amount = mf_row.get('buy_elg_amount')
-                                    daily_record.sell_elg_vol = mf_row.get('sell_elg_vol')
-                                    daily_record.sell_elg_amount = mf_row.get('sell_elg_amount')
-                                    daily_record.net_mf_amount = mf_row.get('net_mf_amount')
-                                    moneyflow_updated += 1
+                            )
                             
-                            if moneyflow_updated > 0:
-                                session.commit()
-                                logger.debug(f"{code}: 更新了 {moneyflow_updated} 条资金流向数据")
-                    except Exception as e:
-                        logger.warning(f"获取 {code} 的资金流向数据失败: {e}")
-                        # 资金流向数据获取失败不影响日线数据，继续执行
-                    
-                    # 控制请求频率
-                    time.sleep(REQUEST_INTERVAL)
+                            if not df_moneyflow.empty:
+                                moneyflow_updated = 0
+                                for _, mf_row in df_moneyflow.iterrows():
+                                    trade_date_mf = mf_row.get('trade_date')
+                                    if not trade_date_mf:
+                                        continue
+                                    
+                                    # 查找对应的日线记录
+                                    daily_record = session.query(StockDaily).filter_by(
+                                        ts_code=code,
+                                        trade_date=trade_date_mf
+                                    ).first()
+                                    
+                                    if daily_record:
+                                        # 更新资金流向数据
+                                        daily_record.buy_sm_vol = mf_row.get('buy_sm_vol')
+                                        daily_record.buy_sm_amount = mf_row.get('buy_sm_amount')
+                                        daily_record.sell_sm_vol = mf_row.get('sell_sm_vol')
+                                        daily_record.sell_sm_amount = mf_row.get('sell_sm_amount')
+                                        daily_record.buy_md_vol = mf_row.get('buy_md_vol')
+                                        daily_record.buy_md_amount = mf_row.get('buy_md_amount')
+                                        daily_record.sell_md_vol = mf_row.get('sell_md_vol')
+                                        daily_record.sell_md_amount = mf_row.get('sell_md_amount')
+                                        daily_record.buy_lg_vol = mf_row.get('buy_lg_vol')
+                                        daily_record.buy_lg_amount = mf_row.get('buy_lg_amount')
+                                        daily_record.sell_lg_vol = mf_row.get('sell_lg_vol')
+                                        daily_record.sell_lg_amount = mf_row.get('sell_lg_amount')
+                                        daily_record.buy_elg_vol = mf_row.get('buy_elg_vol')
+                                        daily_record.buy_elg_amount = mf_row.get('buy_elg_amount')
+                                        daily_record.sell_elg_vol = mf_row.get('sell_elg_vol')
+                                        daily_record.sell_elg_amount = mf_row.get('sell_elg_amount')
+                                        daily_record.net_mf_amount = mf_row.get('net_mf_amount')
+                                        moneyflow_updated += 1
+                                
+                                if moneyflow_updated > 0:
+                                    session.commit()
+                                    logger.debug(f"{code}: 更新了 {moneyflow_updated} 条资金流向数据")
+                        except Exception as e:
+                            logger.warning(f"获取 {code} 的资金流向数据失败: {e}")
+                            # 资金流向数据获取失败不影响日线数据，继续执行
                         
-                except TusharePermissionError as e:
-                    # 权限不足，停止整个任务
-                    logger.error(f"接口权限不足，停止日线数据获取任务: {e.api_name}")
-                    logger.error(f"错误信息: {e.error_msg}")
-                    logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
-                    print(f"❌ 接口权限不足，停止日线数据获取任务: {e.api_name}")
-                    print(f"错误信息: {e.error_msg}")
-                    print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
-                    return  # 直接返回，停止任务
-                except Exception as e:
-                    logger.error(f"获取 {code} 日线数据失败: {e}", exc_info=True)
-                    print(f"获取 {code} 日线数据失败: {e}")
-                    session.rollback()
-                    # 即使失败也要等待，避免过快重试
-                    time.sleep(REQUEST_INTERVAL)
+                        # 控制请求频率
+                        time.sleep(REQUEST_INTERVAL)
+                    
+                    except TusharePermissionError as e:
+                        # 权限不足，停止整个任务
+                        logger.error(f"接口权限不足，停止日线数据获取任务: {e.api_name}")
+                        logger.error(f"错误信息: {e.error_msg}")
+                        logger.error(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                        print(f"❌ 接口权限不足，停止日线数据获取任务: {e.api_name}")
+                        print(f"错误信息: {e.error_msg}")
+                        print(f"请访问 https://tushare.pro/document/1?doc_id=108 查看权限详情")
+                        return  # 直接返回，停止任务
+                    except Exception as e:
+                        logger.error(f"获取 {code} 日线数据失败: {e}", exc_info=True)
+                        print(f"获取 {code} 日线数据失败: {e}")
+                        session.rollback()
+                        # 即使失败也要等待，避免过快重试
+                        time.sleep(REQUEST_INTERVAL)
                     continue
         
         logger.info("=" * 60)

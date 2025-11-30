@@ -10,6 +10,7 @@ import sys
 import os
 import logging
 import time
+import json
 import jwt
 import requests
 from functools import wraps
@@ -21,7 +22,8 @@ from config import get_flask_config, reload_config, get_wechat_config, get_jwt_c
 from database import (
     get_session, StockBasic, StockDaily, StockWeekly, StockMonthly,
     StockMoneyflow, StockIndicator, StockFavorite, StockSelection, StockIPO,
-    User, UserSession, IndexBasic, IndexDaily, IndexWeekly, IndexMonthly, IndexWeight
+    User, UserSession, IndexBasic, IndexDaily, IndexWeekly, IndexMonthly, IndexWeight,
+    CustomStrategy
 )
 from sqlalchemy import and_, or_, func, desc, nullslast
 import pandas as pd
@@ -2054,6 +2056,702 @@ def get_index_weight(ts_code):
             session.close()
     except Exception as e:
         logger.error(f"获取指数成分股权重失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy/generate-sql', methods=['POST'])
+def generate_custom_strategy_sql():
+    """调用DeepSeek API生成SQL"""
+    try:
+        data = request.get_json()
+        description = data.get('description', '')
+        
+        if not description:
+            return jsonify({'code': -1, 'message': '策略描述不能为空'}), 400
+        
+        # 获取数据库表结构信息
+        from sqlalchemy import inspect
+        from database import get_engine
+        session = get_session()
+        
+        try:
+            # 使用 get_engine() 获取 engine，更可靠
+            try:
+                engine = get_engine()
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                if not tables:
+                    logger.warning("数据库中没有找到任何表")
+            except Exception as e:
+                logger.error(f"获取数据库表结构失败: {e}", exc_info=True)
+                raise
+            
+            # 构建表结构信息
+            tables_info = []
+            for table_name in sorted(tables):
+                try:
+                    columns = inspector.get_columns(table_name)
+                    columns_info = []
+                    for col in columns:
+                        columns_info.append({
+                            'name': col['name'],
+                            'type': str(col['type']),
+                            'nullable': col.get('nullable', True),
+                            'comment': col.get('comment', '')
+                        })
+                    tables_info.append({
+                        'name': table_name,
+                        'columns': columns_info
+                    })
+                except Exception as e:
+                    logger.warning(f"获取表 {table_name} 的结构信息失败: {e}")
+                    continue
+            
+            # 构建提示词
+            tables_list = []
+            for t in tables_info:
+                columns_str = ', '.join([f"{c['name']}({c['type']})" for c in t['columns']])
+                tables_list.append(f"表名：{t['name']}\n字段：{columns_str}")
+            tables_str = '\n'.join(tables_list)
+            json_format = """```json
+{{
+  "sql": "SELECT ...",
+  "missing_tables": ["表名1", "表名2"],
+  "missing_fields": ["表名.字段名1", "表名.字段名2"]
+}}
+```"""
+            
+            prompt = f"""你是一个专业的SQL查询生成专家。根据用户的需求描述，生成一个MySQL查询语句。
+
+数据库表结构：
+{tables_str}
+
+用户需求：{description}
+
+要求：
+1. 生成的SQL应该能够从股票数据表中筛选出符合条件的股票
+2. SQL必须返回以下字段：ts_code（股票代码）、symbol（股票代码）、name（股票名称）、industry（行业）、trade_date（交易日期）、close（收盘价）、pct_chg（涨跌幅）、vol（成交量）、amount（成交额）
+3. 如果用户需求中提到了需要某些数据，但数据库表中没有对应的字段，请在响应中明确指出缺失的数据表或字段
+4. SQL应该使用最新的交易日期（trade_date）的数据
+5. 只返回SQL语句，不要包含其他解释
+
+请生成SQL查询语句，格式如下：
+{json_format}
+"""
+            
+            # 调用DeepSeek API
+            import json as json_lib
+            deepseek_api_key = os.environ.get('DEEPSEEK_API_KEY', '')
+            if not deepseek_api_key:
+                # 尝试从配置文件读取
+                try:
+                    from config import get_config
+                    config = get_config()
+                    deepseek_api_key = config.get('deepseek', {}).get('api_key', '')
+                except:
+                    pass
+            
+            if not deepseek_api_key:
+                return jsonify({
+                    'code': -1,
+                    'message': 'DeepSeek API Key未配置，请在环境变量DEEPSEEK_API_KEY或config.json中配置'
+                }), 500
+            
+            # 调用DeepSeek API
+            deepseek_url = 'https://api.deepseek.com/v1/chat/completions'
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {deepseek_api_key}'
+            }
+            payload = {
+                'model': 'deepseek-chat',
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': '你是一个专业的SQL查询生成专家，能够根据用户需求生成准确的MySQL查询语句。'
+                    },
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ],
+                'temperature': 0.3,
+                'max_tokens': 2000
+            }
+            
+            response = requests.post(deepseek_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            
+            # 解析响应
+            content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            # 尝试从响应中提取JSON
+            import re
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if not json_match:
+                json_match = re.search(r'\{.*?"sql".*?\}', content, re.DOTALL)
+            
+            if json_match:
+                json_str = json_match.group(1) if json_match.group(1) else json_match.group(0)
+                try:
+                    parsed = json_lib.loads(json_str)
+                    sql = parsed.get('sql', '')
+                    missing_tables = parsed.get('missing_tables', [])
+                    missing_fields = parsed.get('missing_fields', [])
+                except:
+                    # 如果解析失败，尝试直接提取SQL
+                    sql_match = re.search(r'SELECT.*?;', content, re.DOTALL | re.IGNORECASE)
+                    sql = sql_match.group(0) if sql_match else content
+                    missing_tables = []
+                    missing_fields = []
+            else:
+                # 如果没有找到JSON，尝试直接提取SQL
+                sql_match = re.search(r'SELECT.*?;', content, re.DOTALL | re.IGNORECASE)
+                sql = sql_match.group(0) if sql_match else content
+                missing_tables = []
+                missing_fields = []
+            
+            # 验证SQL安全性（只允许SELECT语句）
+            sql_upper = sql.strip().upper()
+            if not sql_upper.startswith('SELECT'):
+                return jsonify({
+                    'code': -1,
+                    'message': '生成的SQL必须是SELECT查询语句'
+                }), 400
+            
+            # 检查是否有危险操作
+            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+            for keyword in dangerous_keywords:
+                if keyword in sql_upper:
+                    return jsonify({
+                        'code': -1,
+                        'message': f'生成的SQL包含不允许的操作：{keyword}'
+                    }), 400
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'sql': sql,
+                    'missing_tables': missing_tables,
+                    'missing_fields': missing_fields
+                }
+            })
+        finally:
+            session.close()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"调用DeepSeek API失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': f'调用DeepSeek API失败: {str(e)}'}), 500
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"生成SQL失败: {error_msg}", exc_info=True)
+        # 如果是数据库相关错误，提供更友好的提示
+        if 'doesn\'t exist' in error_msg or '不存在' in error_msg:
+            return jsonify({
+                'code': -1,
+                'message': f'数据库表不存在，请先创建相关数据表。错误详情: {error_msg}'
+            }), 500
+        return jsonify({'code': -1, 'message': error_msg}), 500
+
+
+@app.route('/api/custom-strategy/preview-sql', methods=['POST'])
+def preview_custom_strategy_sql():
+    """预览SQL查询结果（不保存）"""
+    try:
+        data = request.get_json()
+        sql_query = data.get('sql_query', '').strip()
+        
+        if not sql_query:
+            return jsonify({'code': -1, 'message': 'SQL查询语句不能为空'}), 400
+        
+        # 验证SQL安全性
+        sql_upper = sql_query.strip().upper()
+        if not sql_upper.startswith('SELECT'):
+            return jsonify({'code': -1, 'message': 'SQL必须是SELECT查询语句'}), 400
+        
+        # 检查是否有危险操作
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+        for keyword in dangerous_keywords:
+            if keyword in sql_upper:
+                return jsonify({
+                    'code': -1,
+                    'message': f'SQL包含不允许的操作：{keyword}'
+                }), 400
+        
+        session = get_session()
+        try:
+            # 获取最新交易日期
+            latest_date = session.query(func.max(StockDaily.trade_date)).scalar()
+            if not latest_date:
+                return jsonify({'code': -1, 'message': '没有可用的交易数据'}), 400
+            
+            # 执行SQL查询
+            from sqlalchemy import text
+            import re
+            try:
+                # 加强SQL注入防护
+                # 1. 检查是否包含注释（可能用于SQL注入）
+                if '--' in sql_query or '/*' in sql_query or '*/' in sql_query:
+                    return jsonify({
+                        'code': -1,
+                        'message': 'SQL包含不允许的注释符号'
+                    }), 400
+                
+                # 2. 检查是否包含分号后的其他语句（防止多语句注入）
+                sql_parts = sql_query.split(';')
+                if len(sql_parts) > 1:
+                    # 检查分号后是否有非空白内容
+                    for part in sql_parts[1:]:
+                        if part.strip():
+                            return jsonify({
+                                'code': -1,
+                                'message': 'SQL包含多个语句，不允许'
+                            }), 400
+                
+                # 3. 检查是否包含UNION注入
+                sql_upper = sql_query.upper()
+                # 允许UNION但需要严格检查
+                if 'UNION' in sql_upper:
+                    # 检查UNION后是否跟着SELECT（正常的UNION）
+                    union_pattern = r'UNION\s+(?:ALL\s+)?SELECT'
+                    if not re.search(union_pattern, sql_upper):
+                        return jsonify({
+                            'code': -1,
+                            'message': 'SQL中的UNION语句格式不正确'
+                        }), 400
+                
+                # 4. 使用参数化查询替换日期占位符
+                sql = sql_query
+                # 将 {trade_date} 替换为参数化查询
+                if '{trade_date}' in sql:
+                    # 使用参数化查询，避免SQL注入
+                    # 注意：SQLAlchemy的text()支持命名参数绑定
+                    sql = sql.replace('{trade_date}', ':trade_date')
+                    query = text(sql).bindparams(trade_date=latest_date)
+                else:
+                    # 如果没有占位符，直接使用text，但已经通过前面的检查
+                    # 注意：即使没有占位符，也使用text()来执行，确保安全性
+                    query = text(sql)
+                
+                result = session.execute(query)
+                
+                # 获取列名
+                columns = list(result.keys())
+                
+                # 检查必需的列
+                required_columns = ['ts_code']
+                missing_columns = [col for col in required_columns if col not in columns]
+                if missing_columns:
+                    return jsonify({
+                        'code': -1,
+                        'message': f'SQL查询结果缺少必需的列：{", ".join(missing_columns)}'
+                    }), 400
+                
+                # 获取数据（限制最多1000条，避免数据过大）
+                rows = []
+                row_count = 0
+                max_rows = 1000
+                
+                for row in result:
+                    if row_count >= max_rows:
+                        break
+                    
+                    row_dict = {}
+                    for i, col in enumerate(columns):
+                        value = row[i]
+                        if isinstance(value, datetime):
+                            value = value.strftime('%Y-%m-%d %H:%M:%S')
+                        elif value is None:
+                            value = None
+                        else:
+                            # 保持原始类型，但确保可以JSON序列化
+                            value = value
+                        row_dict[col] = value
+                    rows.append(row_dict)
+                    row_count += 1
+                
+                # 获取股票基本信息（用于显示股票名称等）
+                stock_info_map = {}
+                if rows:
+                    ts_codes = [row.get('ts_code') for row in rows if row.get('ts_code')]
+                    if ts_codes:
+                        stocks = session.query(StockBasic).filter(
+                            StockBasic.ts_code.in_(ts_codes)
+                        ).all()
+                        for stock in stocks:
+                            stock_info_map[stock.ts_code] = {
+                                'name': stock.name,
+                                'symbol': stock.symbol,
+                                'industry': stock.industry
+                            }
+                
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'columns': columns,
+                        'rows': rows,
+                        'count': len(rows),
+                        'stock_info': stock_info_map,
+                        'latest_date': latest_date,
+                        'has_more': row_count >= max_rows
+                    }
+                })
+            except Exception as e:
+                logger.error(f"执行SQL预览失败: {e}", exc_info=True)
+                error_msg = str(e)
+                # 提供更友好的错误信息
+                if 'doesn\'t exist' in error_msg or '不存在' in error_msg:
+                    return jsonify({
+                        'code': -1,
+                        'message': f'SQL执行失败：表或字段不存在。错误详情: {error_msg}'
+                    }), 400
+                return jsonify({
+                    'code': -1,
+                    'message': f'SQL执行失败: {error_msg}'
+                }), 400
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"预览SQL失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy', methods=['GET'])
+def get_custom_strategies():
+    """获取自定义策略列表"""
+    try:
+        session = get_session()
+        try:
+            strategies = session.query(CustomStrategy).order_by(CustomStrategy.created_at.desc()).all()
+            
+            result = []
+            for strategy in strategies:
+                missing_tables = []
+                try:
+                    if strategy.missing_tables:
+                        missing_tables = json.loads(strategy.missing_tables)
+                except:
+                    pass
+                
+                result.append({
+                    'id': strategy.id,
+                    'name': strategy.name,
+                    'description': strategy.description,
+                    'sql_query': strategy.sql_query,
+                    'missing_tables': missing_tables,
+                    'execution_rule': strategy.execution_rule,
+                    'execution_time': strategy.execution_time,
+                    'is_active': strategy.is_active == 1,
+                    'created_at': strategy.created_at.strftime('%Y-%m-%d %H:%M:%S') if strategy.created_at else None,
+                    'updated_at': strategy.updated_at.strftime('%Y-%m-%d %H:%M:%S') if strategy.updated_at else None,
+                    'last_executed_at': strategy.last_executed_at.strftime('%Y-%m-%d %H:%M:%S') if strategy.last_executed_at else None
+                })
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': result
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"获取自定义策略列表失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy', methods=['POST'])
+def create_custom_strategy():
+    """创建自定义策略"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '')
+        sql_query = data.get('sql_query', '').strip()
+        missing_tables = data.get('missing_tables', [])
+        execution_rule = data.get('execution_rule', 'daily')
+        execution_time = data.get('execution_time', '15:30')
+        
+        if not name:
+            return jsonify({'code': -1, 'message': '策略名称不能为空'}), 400
+        
+        if not sql_query:
+            return jsonify({'code': -1, 'message': 'SQL查询语句不能为空'}), 400
+        
+        # 验证SQL安全性
+        sql_upper = sql_query.strip().upper()
+        if not sql_upper.startswith('SELECT'):
+            return jsonify({'code': -1, 'message': 'SQL必须是SELECT查询语句'}), 400
+        
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+        for keyword in dangerous_keywords:
+            if keyword in sql_upper:
+                return jsonify({'code': -1, 'message': f'SQL包含不允许的操作：{keyword}'}), 400
+        
+        session = get_session()
+        try:
+            # 检查名称是否已存在
+            existing = session.query(CustomStrategy).filter_by(name=name).first()
+            if existing:
+                return jsonify({'code': -1, 'message': '策略名称已存在'}), 400
+            
+            # 创建策略
+            strategy = CustomStrategy(
+                name=name,
+                description=description,
+                sql_query=sql_query,
+                missing_tables=json.dumps(missing_tables) if missing_tables else None,
+                execution_rule=execution_rule,
+                execution_time=execution_time,
+                is_active=1,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            session.add(strategy)
+            session.commit()
+            
+            return jsonify({
+                'code': 0,
+                'message': 'success',
+                'data': {
+                    'id': strategy.id,
+                    'name': strategy.name
+                }
+            })
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"创建自定义策略失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy/<int:strategy_id>', methods=['PUT'])
+def update_custom_strategy(strategy_id):
+    """更新自定义策略"""
+    try:
+        data = request.get_json()
+        session = get_session()
+        try:
+            strategy = session.query(CustomStrategy).filter_by(id=strategy_id).first()
+            if not strategy:
+                return jsonify({'code': -1, 'message': '策略不存在'}), 404
+            
+            # 更新字段
+            if 'name' in data:
+                name = data['name'].strip()
+                if name and name != strategy.name:
+                    # 检查名称是否已被其他策略使用
+                    existing = session.query(CustomStrategy).filter(
+                        CustomStrategy.name == name,
+                        CustomStrategy.id != strategy_id
+                    ).first()
+                    if existing:
+                        return jsonify({'code': -1, 'message': '策略名称已存在'}), 400
+                    strategy.name = name
+            
+            if 'description' in data:
+                strategy.description = data['description']
+            
+            if 'sql_query' in data:
+                sql_query = data['sql_query'].strip()
+                # 验证SQL安全性
+                sql_upper = sql_query.strip().upper()
+                if not sql_upper.startswith('SELECT'):
+                    return jsonify({'code': -1, 'message': 'SQL必须是SELECT查询语句'}), 400
+                
+                dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+                for keyword in dangerous_keywords:
+                    if keyword in sql_upper:
+                        return jsonify({'code': -1, 'message': f'SQL包含不允许的操作：{keyword}'}), 400
+                strategy.sql_query = sql_query
+            
+            if 'missing_tables' in data:
+                strategy.missing_tables = json.dumps(data['missing_tables']) if data['missing_tables'] else None
+            
+            if 'execution_rule' in data:
+                strategy.execution_rule = data['execution_rule']
+            
+            if 'execution_time' in data:
+                strategy.execution_time = data['execution_time']
+            
+            if 'is_active' in data:
+                strategy.is_active = 1 if data['is_active'] else 0
+            
+            strategy.updated_at = datetime.now()
+            session.commit()
+            
+            return jsonify({'code': 0, 'message': 'success'})
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"更新自定义策略失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy/<int:strategy_id>', methods=['DELETE'])
+def delete_custom_strategy(strategy_id):
+    """删除自定义策略"""
+    try:
+        session = get_session()
+        try:
+            strategy = session.query(CustomStrategy).filter_by(id=strategy_id).first()
+            if not strategy:
+                return jsonify({'code': -1, 'message': '策略不存在'}), 404
+            
+            session.delete(strategy)
+            session.commit()
+            
+            return jsonify({'code': 0, 'message': 'success'})
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"删除自定义策略失败: {e}", exc_info=True)
+        return jsonify({'code': -1, 'message': str(e)}), 500
+
+
+@app.route('/api/custom-strategy/<int:strategy_id>/execute', methods=['POST'])
+def execute_custom_strategy(strategy_id):
+    """执行自定义策略"""
+    try:
+        session = get_session()
+        try:
+            strategy = session.query(CustomStrategy).filter_by(id=strategy_id).first()
+            if not strategy:
+                return jsonify({'code': -1, 'message': '策略不存在'}), 404
+            
+            if strategy.is_active != 1:
+                return jsonify({'code': -1, 'message': '策略未启用'}), 400
+            
+            # 获取最新交易日期
+            latest_date = session.query(func.max(StockDaily.trade_date)).scalar()
+            if not latest_date:
+                return jsonify({'code': -1, 'message': '没有可用的交易数据'}), 400
+            
+            # 执行SQL查询
+            from sqlalchemy import text
+            try:
+                # 替换SQL中的日期占位符（如果有）
+                sql = strategy.sql_query
+                if '{trade_date}' in sql:
+                    sql = sql.replace('{trade_date}', latest_date)
+                
+                query = text(sql)
+                result = session.execute(query)
+                
+                # 获取列名
+                columns = list(result.keys())
+                
+                # 检查必需的列
+                required_columns = ['ts_code']
+                missing_columns = [col for col in required_columns if col not in columns]
+                if missing_columns:
+                    return jsonify({
+                        'code': -1,
+                        'message': f'SQL查询结果缺少必需的列：{", ".join(missing_columns)}'
+                    }), 400
+                
+                # 获取数据
+                rows = []
+                for row in result:
+                    row_dict = {}
+                    for i, col in enumerate(columns):
+                        value = row[i]
+                        if isinstance(value, datetime):
+                            value = value.strftime('%Y-%m-%d %H:%M:%S')
+                        row_dict[col] = value
+                    rows.append(row_dict)
+                
+                # 保存选股结果
+                saved_count = 0
+                for row in rows:
+                    ts_code = row.get('ts_code')
+                    if not ts_code:
+                        continue
+                    
+                    # 获取股票基本信息
+                    stock = session.query(StockBasic).filter_by(ts_code=ts_code).first()
+                    if not stock:
+                        continue
+                    
+                    # 获取最新日线数据
+                    daily = session.query(StockDaily).filter(
+                        StockDaily.ts_code == ts_code,
+                        StockDaily.trade_date == latest_date
+                    ).first()
+                    
+                    # 构建选股理由
+                    reason_parts = []
+                    if daily:
+                        if daily.pct_chg:
+                            reason_parts.append(f"涨跌幅: {daily.pct_chg:.2f}%")
+                        if daily.vol:
+                            reason_parts.append(f"成交量: {daily.vol:.0f}")
+                    reason = " | ".join(reason_parts) if reason_parts else "自定义策略选股"
+                    
+                    # 计算评分（可以根据SQL结果中的字段计算，这里简化处理）
+                    score = 0.0
+                    if 'score' in row and row['score']:
+                        try:
+                            score = float(row['score'])
+                        except:
+                            pass
+                    
+                    # 检查是否已存在
+                    existing = session.query(StockSelection).filter_by(
+                        ts_code=ts_code,
+                        strategy_name=strategy.name,
+                        trade_date=latest_date
+                    ).first()
+                    
+                    if existing:
+                        existing.score = score
+                        existing.reason = reason
+                        existing.created_at = datetime.now()
+                    else:
+                        selection = StockSelection(
+                            ts_code=ts_code,
+                            strategy_name=strategy.name,
+                            trade_date=latest_date,
+                            score=score,
+                            reason=reason,
+                            created_at=datetime.now()
+                        )
+                        session.add(selection)
+                    
+                    saved_count += 1
+                
+                session.commit()
+                
+                # 更新策略的最后执行时间
+                strategy.last_executed_at = datetime.now()
+                session.commit()
+                
+                return jsonify({
+                    'code': 0,
+                    'message': 'success',
+                    'data': {
+                        'saved_count': saved_count,
+                        'trade_date': latest_date
+                    }
+                })
+            except Exception as e:
+                session.rollback()
+                logger.error(f"执行SQL失败: {e}", exc_info=True)
+                return jsonify({'code': -1, 'message': f'执行SQL失败: {str(e)}'}), 500
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"执行自定义策略失败: {e}", exc_info=True)
         return jsonify({'code': -1, 'message': str(e)}), 500
 
 

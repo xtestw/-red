@@ -113,7 +113,107 @@
             </a-table>
           </div>
         </a-tab-pane>
-        <!-- 可以在这里添加更多策略的tab -->
+        <!-- 自定义策略tab -->
+        <a-tab-pane
+          v-for="strategy in customStrategies"
+          :key="strategy.name"
+          :tab="strategy.name"
+        >
+          <div class="strategy-content">
+            <!-- 筛选区域 -->
+            <div class="filter-selector">
+              <a-space wrap size="small">
+                <span>选股日期：</span>
+                <a-select
+                  v-model:value="selectedDate"
+                  style="width: 180px"
+                  placeholder="选择日期"
+                  :loading="datesLoading"
+                  @change="handleDateChange"
+                  allowClear
+                  size="small"
+                >
+                  <a-select-option v-for="date in dates" :key="date" :value="date">
+                    {{ date }}
+                  </a-select-option>
+                </a-select>
+                <span>行业筛选：</span>
+                <a-select
+                  v-model:value="selectedIndustry"
+                  style="width: 180px"
+                  placeholder="选择行业"
+                  allowClear
+                  @change="handleFilterChange"
+                  size="small"
+                >
+                  <a-select-option v-for="industry in industries" :key="industry" :value="industry">
+                    {{ industry }}
+                  </a-select-option>
+                </a-select>
+                <a-button type="primary" @click="loadSelections" :loading="loading" size="small">
+                  <template #icon><ReloadOutlined /></template>
+                  刷新
+                </a-button>
+                <a-button @click="resetFilters" size="small">
+                  重置筛选
+                </a-button>
+              </a-space>
+            </div>
+
+            <!-- 股票列表 -->
+            <a-table
+              :columns="columns"
+              :data-source="selections"
+              :loading="loading"
+              :pagination="paginationConfig"
+              @change="handleTableChange"
+              :scroll="{ x: 1200, y: tableScrollHeight.value }"
+              size="small"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'pct_chg'">
+                  <span :class="getPctChgClass(record.pct_chg)">
+                    {{ record.pct_chg ? formatPctChg(record.pct_chg) : '-' }}
+                  </span>
+                </template>
+                <template v-else-if="column.key === 'close'">
+                  <span class="number">{{ record.close ? record.close.toFixed(2) : '-' }}</span>
+                </template>
+                <template v-else-if="column.key === 'vol'">
+                  <span class="number">{{ record.vol ? formatNumber(record.vol) : '-' }}</span>
+                </template>
+                <template v-else-if="column.key === 'amount'">
+                  <span class="number">{{ record.amount ? formatNumber(record.amount) : '-' }}</span>
+                </template>
+                <template v-else-if="column.key === 'score'">
+                  <span class="number">{{ record.score ? record.score.toFixed(2) : '-' }}</span>
+                </template>
+                <template v-else-if="column.key === 'reason'">
+                  <a-tooltip :title="record.reason" placement="topLeft">
+                    <span class="reason-text">{{ record.reason || '-' }}</span>
+                  </a-tooltip>
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <a-space>
+                    <a-button type="link" size="small" @click="showStockDetail(record.ts_code)">
+                      <template #icon><EyeOutlined /></template>
+                      详情
+                    </a-button>
+                    <a-button
+                      type="link"
+                      size="small"
+                      @click="toggleFavorite(record.ts_code)"
+                      :class="{ 'favorited': isFavorited(record.ts_code) }"
+                    >
+                      <template #icon><StarOutlined /></template>
+                      {{ isFavorited(record.ts_code) ? '已收藏' : '收藏' }}
+                    </a-button>
+                  </a-space>
+                </template>
+              </template>
+            </a-table>
+          </div>
+        </a-tab-pane>
       </a-tabs>
     </a-card>
 
@@ -135,7 +235,7 @@ import {
   EyeOutlined
 } from '@ant-design/icons-vue'
 import StockDetailModal from '../components/StockDetailModal.vue'
-import { strategyAPI } from '../api/index'
+import { strategyAPI, customStrategyAPI } from '../api/index'
 import { favoriteAPI } from '../api/index'
 import { useStockStore } from '../stores/stock'
 
@@ -158,6 +258,7 @@ const pagination = ref({
 })
 const tableSorter = ref({})
 const tableScrollHeight = ref(600) // 默认高度
+const customStrategies = ref([]) // 自定义策略列表
 
 // 计算表格滚动高度（窗口高度减去其他元素高度）
 const calculateTableHeight = () => {
@@ -479,9 +580,22 @@ const updateTableHeight = () => {
   calculateTableHeight()
 }
 
+// 加载自定义策略列表
+const loadCustomStrategies = async () => {
+  try {
+    const response = await customStrategyAPI.getStrategies()
+    if (response.code === 0) {
+      customStrategies.value = response.data.filter(s => s.is_active)
+    }
+  } catch (error) {
+    console.error('加载自定义策略失败:', error)
+  }
+}
+
 // 初始化
 onMounted(async () => {
   await store.loadFavorites()
+  await loadCustomStrategies()
   await loadDates()
   await loadSelections()
   

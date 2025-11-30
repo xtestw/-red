@@ -82,3 +82,6 @@ ALTER TABLE `stock_daily`
   ADD COLUMN `rqchl` float DEFAULT NULL COMMENT '融券偿还量(股)' AFTER `rzche`;
 
 
+
+
+

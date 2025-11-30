@@ -257,5 +257,31 @@ export const indexAPI = {
   getIndexWeight: (tsCode, params) => api.get(`/indices/${tsCode}/weight`, { params })
 }
 
+/**
+ * 自定义策略相关API
+ */
+export const customStrategyAPI = {
+  // 生成SQL
+  generateSQL: (description) => api.post('/custom-strategy/generate-sql', { description }),
+  
+  // 预览SQL结果
+  previewSQL: (sqlQuery) => api.post('/custom-strategy/preview-sql', { sql_query: sqlQuery }),
+  
+  // 获取策略列表
+  getStrategies: () => api.get('/custom-strategy'),
+  
+  // 创建策略
+  createStrategy: (data) => api.post('/custom-strategy', data),
+  
+  // 更新策略
+  updateStrategy: (id, data) => api.put(`/custom-strategy/${id}`, data),
+  
+  // 删除策略
+  deleteStrategy: (id) => api.delete(`/custom-strategy/${id}`),
+  
+  // 执行策略
+  executeStrategy: (id) => api.post(`/custom-strategy/${id}/execute`)
+}
+
 export default api
 

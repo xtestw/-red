@@ -8,6 +8,7 @@ import IndexList from '../views/IndexList.vue'
 import GlobalMarket from '../views/GlobalMarket.vue'
 import BigPlayerTracking from '../views/BigPlayerTracking.vue'
 import StrategySelection from '../views/StrategySelection.vue'
+import CustomStrategy from '../views/CustomStrategy.vue'
 import DataMap from '../views/DataMap.vue'
 import Login from '../views/Login.vue'
 import AuthCallback from '../views/AuthCallback.vue'
@@ -56,6 +57,11 @@ const routes = [
         path: 'strategy/selection',
         name: 'StrategySelection',
         component: StrategySelection
+      },
+      {
+        path: 'strategy/custom',
+        name: 'CustomStrategy',
+        component: CustomStrategy
       },
       {
         path: 'global',

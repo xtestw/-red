@@ -37,6 +37,9 @@
           <a-menu-item key="strategy-selection">
             <span>💰 选股页面</span>
           </a-menu-item>
+          <a-menu-item key="strategy-custom">
+            <span>⚙️ 自定义策略</span>
+          </a-menu-item>
         </a-sub-menu>
         <a-menu-item key="global">
           <span>🌍 外盘跟踪</span>
@@ -266,6 +269,7 @@ const getRouteKey = (routeName, query) => {
     'SectorData': 'stocks-sector',
     'IndexList': 'stocks-index',
     'StrategySelection': 'strategy-selection',
+    'CustomStrategy': 'strategy-custom',
     'GlobalMarket': 'global',
     'BigPlayerTracking': 'bigplayers',
     'DataMap': 'datamap'
@@ -284,6 +288,7 @@ const routeMap = {
   'stocks-sector': { name: 'SectorData' },
   'stocks-index': { name: 'IndexList' },
   'strategy-selection': { name: 'StrategySelection' },
+  'strategy-custom': { name: 'CustomStrategy' },
   'global': { name: 'GlobalMarket' },
   'bigplayers': { name: 'BigPlayerTracking' },
   'datamap': { name: 'DataMap' }
