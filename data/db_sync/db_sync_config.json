@@ -1,0 +1,16 @@
+{
+  "ssh": {
+    "user": "ubuntu",
+    "host": "api.xtestw.com",
+    "port": 22,
+    "key_file": "/path/to/your/private_key",
+    "password": ""
+  },
+  "remote_db": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "xw123",
+    "database": "stock_data"
+  }
+}

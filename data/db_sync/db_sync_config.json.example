@@ -1,0 +1,21 @@
+{
+  "ssh": {
+    "user": "root",
+    "host": "your-remote-server.com",
+    "port": 22,
+    "key_file": "/path/to/your/private_key",
+    "password": ""
+  },
+  "remote_db": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "your_password",
+    "database": "stock_data"
+  }
+}
+
+注意：
+- 如果 key_file 是示例路径（包含 /path/to/your/private_key）或文件不存在，工具会自动使用密码认证
+- 如果不想使用密钥文件，可以将 key_file 设置为 null 或空字符串，或删除该字段
+- 如果 key_file 和 password 都未配置，工具会在运行时提示输入密码
