@@ -261,11 +261,11 @@ export const indexAPI = {
  * 自定义策略相关API
  */
 export const customStrategyAPI = {
-  // 生成SQL
+  // 生成SQL（返回query_id）
   generateSQL: (description) => api.post('/custom-strategy/generate-sql', { description }),
   
-  // 预览SQL结果
-  previewSQL: (sqlQuery) => api.post('/custom-strategy/preview-sql', { sql_query: sqlQuery }),
+  // 预览SQL结果（通过query_id）
+  previewSQL: (queryId) => api.post('/custom-strategy/preview-sql', { query_id: queryId }),
   
   // 获取策略列表
   getStrategies: () => api.get('/custom-strategy'),

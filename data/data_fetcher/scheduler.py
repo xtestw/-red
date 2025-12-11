@@ -380,12 +380,40 @@ def job_execute_custom_strategies():
                         print(f"[{datetime.now()}] 警告：没有可用的交易数据，跳过策略 {strategy.name}")
                         continue
                     
-                    # 执行SQL查询
-                    sql = strategy.sql_query
-                    if '{trade_date}' in sql:
-                        sql = sql.replace('{trade_date}', latest_date)
+                    # 执行SQL查询（使用安全检查）
+                    try:
+                        # 导入SQL安全检查模块
+                        import sys
+                        import os
+                        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        sql_security_path = os.path.join(project_root, 'web-server')
+                        if sql_security_path not in sys.path:
+                            sys.path.insert(0, sql_security_path)
+                        from sql_security import validate_sql_security, sanitize_sql_for_execution
+                        
+                        # 验证SQL安全性
+                        try:
+                            validate_sql_security(strategy.sql_query)
+                        except Exception as e:
+                            print(f"[{datetime.now()}] 警告：策略 {strategy.name} 的SQL安全检查失败: {e}，跳过")
+                            continue
+                        
+                        # 使用安全的SQL清理函数
+                        sql, params = sanitize_sql_for_execution(strategy.sql_query, latest_date)
+                        
+                        # 使用参数化查询执行
+                        if params:
+                            query = text(sql).bindparams(**params)
+                        else:
+                            query = text(sql)
+                    except ImportError:
+                        # 如果无法导入安全检查模块，使用基本检查
+                        print(f"[{datetime.now()}] 警告：无法导入SQL安全检查模块，使用基本检查")
+                        sql = strategy.sql_query
+                        if '{trade_date}' in sql:
+                            sql = sql.replace('{trade_date}', latest_date)
+                        query = text(sql)
                     
-                    query = text(sql)
                     result = session.execute(query)
                     
                     # 获取列名

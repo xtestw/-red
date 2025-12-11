@@ -469,6 +469,29 @@ class IndexWeight(Base):
         Index('idx_index_code_con_code_date', 'index_code', 'con_code', 'trade_date', unique=True),
     )
 
+# 用户查询表（存储查询条件和生成的SQL）
+class CustomQuery(Base):
+    __tablename__ = 'custom_query'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True, comment='用户ID（可选）')
+    query_description = Column(Text, nullable=False, comment='查询条件描述')
+    generated_sql = Column(Text, nullable=False, comment='生成的SQL查询语句')
+    missing_tables = Column(Text, comment='缺失的数据表（JSON格式）')
+    missing_fields = Column(Text, comment='缺失的字段（JSON格式）')
+    status = Column(String(20), default='pending', comment='状态：pending-待执行，success-成功，failed-失败')
+    error_message = Column(Text, comment='错误信息')
+    execution_count = Column(Integer, default=0, comment='执行次数')
+    last_executed_at = Column(DateTime, comment='最后执行时间')
+    created_at = Column(DateTime, comment='创建时间')
+    updated_at = Column(DateTime, comment='更新时间')
+    
+    __table_args__ = (
+        Index('idx_user_id', 'user_id'),
+        Index('idx_status', 'status'),
+        Index('idx_created_at', 'created_at'),
+    )
+
 # 自定义策略表
 class CustomStrategy(Base):
     __tablename__ = 'custom_strategy'

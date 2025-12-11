@@ -23,7 +23,7 @@ from database import (
     get_session, StockBasic, StockDaily, StockWeekly, StockMonthly,
     StockMoneyflow, StockIndicator, StockFavorite, StockSelection, StockIPO,
     User, UserSession, IndexBasic, IndexDaily, IndexWeekly, IndexMonthly, IndexWeight,
-    CustomStrategy
+    CustomStrategy, CustomQuery
 )
 from sqlalchemy import and_, or_, func, desc, nullslast
 import pandas as pd
@@ -2135,6 +2135,16 @@ def generate_custom_strategy_sql():
 4. SQL应该使用最新的交易日期（trade_date）的数据
 5. 只返回SQL语句，不要包含其他解释
 
+【重要安全要求 - 必须严格遵守】：
+1. 只能生成SELECT查询语句，禁止生成任何修改数据的语句（如INSERT、UPDATE、DELETE、DROP、ALTER、CREATE等）
+2. 禁止在SQL中包含注释符号（--、/*、*/），这些可能被用于SQL注入攻击
+3. 禁止生成多语句查询（不能使用分号分隔多个语句）
+4. 只能访问以下允许的表：{', '.join(sorted([t['name'] for t in tables_info if t['name'].startswith('stock_') or t['name'].startswith('index_')]))}
+5. 禁止访问系统表（如information_schema、mysql、sys等）
+6. 禁止使用危险函数（如LOAD_FILE、INTO OUTFILE、BENCHMARK、SLEEP等）
+7. 生成的SQL必须符合SQL注入防护规范，不能包含任何可能被利用进行注入攻击的代码
+8. 如果用户需求中包含可能的安全风险，请拒绝生成SQL并说明原因
+
 请生成SQL查询语句，格式如下：
 {json_format}
 """
@@ -2163,12 +2173,27 @@ def generate_custom_strategy_sql():
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {deepseek_api_key}'
             }
+            
+            # 系统提示词，强调SQL注入防护
+            system_prompt = """你是一个专业的SQL查询生成专家，能够根据用户需求生成准确的MySQL查询语句。
+
+【安全要求 - 必须严格遵守】：
+1. 只能生成SELECT查询语句，绝对禁止生成任何修改数据的语句
+2. 禁止在SQL中包含注释符号（--、/*、*/）
+3. 禁止生成多语句查询
+4. 只能访问允许的数据表，禁止访问系统表
+5. 禁止使用危险函数
+6. 生成的SQL必须符合SQL注入防护规范
+7. 如果用户需求存在安全风险，必须拒绝并说明原因
+
+请确保生成的SQL是安全的、只读的查询语句。"""
+            
             payload = {
                 'model': 'deepseek-chat',
                 'messages': [
                     {
                         'role': 'system',
-                        'content': '你是一个专业的SQL查询生成专家，能够根据用户需求生成准确的MySQL查询语句。'
+                        'content': system_prompt
                     },
                     {
                         'role': 'user',
@@ -2212,27 +2237,58 @@ def generate_custom_strategy_sql():
                 missing_tables = []
                 missing_fields = []
             
-            # 验证SQL安全性（只允许SELECT语句）
-            sql_upper = sql.strip().upper()
-            if not sql_upper.startswith('SELECT'):
+            # 使用统一的SQL安全检查
+            import sys
+            import os
+            sql_security_path = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+            if sql_security_path not in sys.path:
+                sys.path.insert(0, sql_security_path)
+            from sql_security import validate_sql_security
+            
+            # 验证SQL安全性
+            try:
+                validate_sql_security(sql)
+            except Exception as e:
+                logger.warning(f"生成的SQL安全检查失败: {str(e)}, SQL: {sql[:100]}...")
                 return jsonify({
                     'code': -1,
-                    'message': '生成的SQL必须是SELECT查询语句'
+                    'message': f'生成的SQL安全检查失败：{str(e)}。请重新描述您的需求。'
                 }), 400
             
-            # 检查是否有危险操作
-            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
-            for keyword in dangerous_keywords:
-                if keyword in sql_upper:
-                    return jsonify({
-                        'code': -1,
-                        'message': f'生成的SQL包含不允许的操作：{keyword}'
-                    }), 400
+            # 保存查询条件和SQL到数据库
+            from datetime import datetime
+            import json as json_lib
+            
+            # 获取用户ID（如果有）
+            user_id = None
+            try:
+                token = request.headers.get('Authorization', '').replace('Bearer ', '')
+                if token:
+                    # 这里可以解析token获取user_id，暂时设为None
+                    pass
+            except:
+                pass
+            
+            custom_query = CustomQuery(
+                user_id=user_id,
+                query_description=description,
+                generated_sql=sql,
+                missing_tables=json_lib.dumps(missing_tables) if missing_tables else None,
+                missing_fields=json_lib.dumps(missing_fields) if missing_fields else None,
+                status='pending',
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            session.add(custom_query)
+            session.commit()
+            
+            query_id = custom_query.id
             
             return jsonify({
                 'code': 0,
                 'message': 'success',
                 'data': {
+                    'query_id': query_id,
                     'sql': sql,
                     'missing_tables': missing_tables,
                     'missing_fields': missing_fields
@@ -2257,27 +2313,42 @@ def generate_custom_strategy_sql():
 
 @app.route('/api/custom-strategy/preview-sql', methods=['POST'])
 def preview_custom_strategy_sql():
-    """预览SQL查询结果（不保存）"""
+    """预览SQL查询结果（通过query_id获取SQL）"""
     try:
         data = request.get_json()
-        sql_query = data.get('sql_query', '').strip()
+        query_id = data.get('query_id')
         
-        if not sql_query:
-            return jsonify({'code': -1, 'message': 'SQL查询语句不能为空'}), 400
+        if not query_id:
+            return jsonify({'code': -1, 'message': 'query_id不能为空'}), 400
         
-        # 验证SQL安全性
-        sql_upper = sql_query.strip().upper()
-        if not sql_upper.startswith('SELECT'):
-            return jsonify({'code': -1, 'message': 'SQL必须是SELECT查询语句'}), 400
+        session = get_session()
+        try:
+            # 从数据库获取查询记录
+            custom_query = session.query(CustomQuery).filter_by(id=query_id).first()
+            if not custom_query:
+                return jsonify({'code': -1, 'message': '查询记录不存在'}), 404
+            
+            sql_query = custom_query.generated_sql.strip()
+            
+            if not sql_query:
+                return jsonify({'code': -1, 'message': 'SQL查询语句不能为空'}), 400
         
-        # 检查是否有危险操作
-        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper:
-                return jsonify({
-                    'code': -1,
-                    'message': f'SQL包含不允许的操作：{keyword}'
-                }), 400
+        # 使用统一的SQL安全检查
+        import sys
+        import os
+        sql_security_path = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+        if sql_security_path not in sys.path:
+            sys.path.insert(0, sql_security_path)
+        from sql_security import validate_sql_security, sanitize_sql_for_execution
+        
+        try:
+            validate_sql_security(sql_query)
+        except Exception as e:
+            logger.warning(f"SQL安全检查失败: {str(e)}, SQL: {sql_query[:100]}...")
+            return jsonify({
+                'code': -1,
+                'message': f'SQL安全检查失败：{str(e)}'
+            }), 400
         
         session = get_session()
         try:
@@ -2288,50 +2359,14 @@ def preview_custom_strategy_sql():
             
             # 执行SQL查询
             from sqlalchemy import text
-            import re
             try:
-                # 加强SQL注入防护
-                # 1. 检查是否包含注释（可能用于SQL注入）
-                if '--' in sql_query or '/*' in sql_query or '*/' in sql_query:
-                    return jsonify({
-                        'code': -1,
-                        'message': 'SQL包含不允许的注释符号'
-                    }), 400
+                # 使用安全的SQL清理函数
+                sql, params = sanitize_sql_for_execution(sql_query, latest_date)
                 
-                # 2. 检查是否包含分号后的其他语句（防止多语句注入）
-                sql_parts = sql_query.split(';')
-                if len(sql_parts) > 1:
-                    # 检查分号后是否有非空白内容
-                    for part in sql_parts[1:]:
-                        if part.strip():
-                            return jsonify({
-                                'code': -1,
-                                'message': 'SQL包含多个语句，不允许'
-                            }), 400
-                
-                # 3. 检查是否包含UNION注入
-                sql_upper = sql_query.upper()
-                # 允许UNION但需要严格检查
-                if 'UNION' in sql_upper:
-                    # 检查UNION后是否跟着SELECT（正常的UNION）
-                    union_pattern = r'UNION\s+(?:ALL\s+)?SELECT'
-                    if not re.search(union_pattern, sql_upper):
-                        return jsonify({
-                            'code': -1,
-                            'message': 'SQL中的UNION语句格式不正确'
-                        }), 400
-                
-                # 4. 使用参数化查询替换日期占位符
-                sql = sql_query
-                # 将 {trade_date} 替换为参数化查询
-                if '{trade_date}' in sql:
-                    # 使用参数化查询，避免SQL注入
-                    # 注意：SQLAlchemy的text()支持命名参数绑定
-                    sql = sql.replace('{trade_date}', ':trade_date')
-                    query = text(sql).bindparams(trade_date=latest_date)
+                # 使用参数化查询执行
+                if params:
+                    query = text(sql).bindparams(**params)
                 else:
-                    # 如果没有占位符，直接使用text，但已经通过前面的检查
-                    # 注意：即使没有占位符，也使用text()来执行，确保安全性
                     query = text(sql)
                 
                 result = session.execute(query)
@@ -2347,6 +2382,14 @@ def preview_custom_strategy_sql():
                         'code': -1,
                         'message': f'SQL查询结果缺少必需的列：{", ".join(missing_columns)}'
                     }), 400
+                
+                # 更新查询记录状态和执行信息
+                from datetime import datetime
+                custom_query.status = 'success'
+                custom_query.execution_count += 1
+                custom_query.last_executed_at = datetime.now()
+                custom_query.updated_at = datetime.now()
+                session.commit()
                 
                 # 获取数据（限制最多1000条，避免数据过大）
                 rows = []
@@ -2401,6 +2444,19 @@ def preview_custom_strategy_sql():
             except Exception as e:
                 logger.error(f"执行SQL预览失败: {e}", exc_info=True)
                 error_msg = str(e)
+                
+                # 更新查询记录状态为失败
+                try:
+                    from datetime import datetime
+                    custom_query.status = 'failed'
+                    custom_query.error_message = error_msg
+                    custom_query.execution_count += 1
+                    custom_query.last_executed_at = datetime.now()
+                    custom_query.updated_at = datetime.now()
+                    session.commit()
+                except Exception as update_error:
+                    logger.error(f"更新查询记录状态失败: {update_error}")
+                
                 # 提供更友好的错误信息
                 if 'doesn\'t exist' in error_msg or '不存在' in error_msg:
                     return jsonify({
@@ -2640,12 +2696,35 @@ def execute_custom_strategy(strategy_id):
             # 执行SQL查询
             from sqlalchemy import text
             try:
-                # 替换SQL中的日期占位符（如果有）
-                sql = strategy.sql_query
-                if '{trade_date}' in sql:
-                    sql = sql.replace('{trade_date}', latest_date)
+                # 使用统一的SQL安全检查
+                try:
+                    from web_server.sql_security import validate_sql_security, sanitize_sql_for_execution
+                except ImportError:
+                    # 如果导入失败，使用相对导入
+                    import sys
+                    import os
+                    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                    from sql_security import validate_sql_security, sanitize_sql_for_execution
                 
-                query = text(sql)
+                # 验证SQL安全性
+                try:
+                    validate_sql_security(strategy.sql_query)
+                except Exception as e:
+                    logger.warning(f"策略SQL安全检查失败: {str(e)}, 策略ID: {strategy_id}, SQL: {strategy.sql_query[:100]}...")
+                    return jsonify({
+                        'code': -1,
+                        'message': f'策略SQL安全检查失败：{str(e)}'
+                    }), 400
+                
+                # 使用安全的SQL清理函数
+                sql, params = sanitize_sql_for_execution(strategy.sql_query, latest_date)
+                
+                # 使用参数化查询执行
+                if params:
+                    query = text(sql).bindparams(**params)
+                else:
+                    query = text(sql)
+                
                 result = session.execute(query)
                 
                 # 获取列名
