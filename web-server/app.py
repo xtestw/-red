@@ -2332,6 +2332,9 @@ def preview_custom_strategy_sql():
             
             if not sql_query:
                 return jsonify({'code': -1, 'message': 'SQL查询语句不能为空'}), 400
+        except Exception as e:
+            logger.error(f"获取查询记录失败: {str(e)}", exc_info=True)
+            return jsonify({'code': -1, 'message': f'获取查询记录失败: {str(e)}'}), 500
         
         # 使用统一的SQL安全检查
         import sys
